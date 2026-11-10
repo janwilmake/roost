@@ -1,0 +1,13 @@
+{
+  "name": "roost",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A sidebar where your open Claude Code terminal sessions come home to.",
+  "type": "module",
+  "bin": { "roost": "bin/roost.js" },
+  "scripts": {
+    "start": "node bin/roost.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
