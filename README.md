@@ -71,6 +71,15 @@ Waiting for others:
 - each thing an outside party must do, with who
 ```
 
+A session about a customer starts its notes with this header. The counts are the items in the two lists. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
+
+```text
+Waiting for us: 2 · Waiting for them: 1
+Last meeting: Lisa, Tue 10 Nov 14:00
+Last message: Lisa → us, Tue 10 Nov 16:12 (email)
+Next meeting: Lisa, Thu 12 Nov 10:00
+```
+
 Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
 
 ```bash
