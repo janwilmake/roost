@@ -1,14 +1,20 @@
 import AppKit
 
 let serverURL = URL(string: "http://127.0.0.1:4777/")!
-let perchSize: CGFloat = 40
-let stripGap: CGFloat = 6
-let stripStep = perchSize + stripGap
-let magnifiedScale: CGFloat = 2
+let largestTile: CGFloat = 40
+let smallestTile: CGFloat = 22
+let magnifiedSize: CGFloat = 80
 let magnifyRadius: CGFloat = 110
-let magnifiedWidth = perchSize * magnifiedScale + 4
-let magnifyPadding = (magnifiedScale - 1) * magnifyRadius / 2 + 6
+/// Like the Dock, every tile shrinks when the strip has more tiles than the screen has room for.
+var perchSize = largestTile
+var stripGap: CGFloat { gap(for: perchSize) }
+var stripStep: CGFloat { perchSize + stripGap }
+var magnifiedScale: CGFloat { magnifiedSize / perchSize }
+var magnifiedWidth: CGFloat { magnifiedSize + 4 }
+var magnifyPadding: CGFloat { (magnifiedScale - 1) * magnifyRadius / 2 + 6 }
+func gap(for tile: CGFloat) -> CGFloat { (tile * 0.15).rounded() }
 let draggedScale: CGFloat = 1.25
+let stripBottomMargin: CGFloat = 8
 
 enum Palette {
     static let terracotta = NSColor(srgbRed: 0.80, green: 0.33, blue: 0.17, alpha: 1)
@@ -929,6 +935,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func layoutStrips(revealing sessionIds: Set<String> = []) {
         isCollapsing = false
         let screens = NSScreen.screens
+        fitTiles(on: screens)
         while strips.count > screens.count { strips.removeLast().close() }
         while strips.count < screens.count {
             strips.append(makeOverlayPanel(frame: NSRect(x: 0, y: 0, width: perchSize, height: perchSize)))
@@ -962,11 +969,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Picks the largest tile size at which the rooster, every entry and the plus tile fit on the smallest screen.
+    private func fitTiles(on screens: [NSScreen]) {
+        let room = (screens.map(\.visibleFrame.height).min() ?? 0) - perchOffset.y - stripBottomMargin
+        let tiles = CGFloat(entries(faces: faces, topics: topics).count + 2)
+        var size = largestTile
+        while size > smallestTile && tiles * (size + gap(for: size)) > room { size -= 1 }
+        perchSize = size
+    }
+
     /// The rooster sits on top, then one tile per topic and visible session, then the plus tile.
     private func layout(strip panel: NSPanel, on screen: NSScreen) {
         let visible = screen.visibleFrame
         let offset = perchOffset
-        let capacity = max(0, Int((visible.height - offset.y - perchSize - stripGap) / stripStep) - 1)
+        let capacity = max(0, Int((visible.height - offset.y - stripBottomMargin - perchSize - stripGap) / stripStep) - 1)
         let shown = Array(entries(faces: faces, topics: topics).prefix(capacity))
         // The extra gap leaves room for a stripe under a topic at the end of the sessions.
         let height = perchSize + CGFloat(shown.count + 1) * stripStep + stripGap

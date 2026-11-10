@@ -31,6 +31,8 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Drag or click the rooster | Dragging moves the strip on every screen. A click offers Quit.                |
 | Click the + tile          | Start a session in one of your 5 most used folders, or choose a new folder.   |
 
+When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
+
 A red dot means the session needs you, and a small orange spinner means it is working. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
