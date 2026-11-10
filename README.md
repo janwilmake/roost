@@ -8,24 +8,13 @@ Roost is for one person who runs many Claude Code sessions at once in Terminal o
 
 ## Install
 
-You need macOS 13 or later, Node 20 or later, and the Xcode command line tools.
+Paste this into Claude Code:
 
-```bash
-./scripts/build-app.sh                         # builds ~/Applications/Roost.app
-ln -s "$PWD/bin/roost.js" ~/.local/bin/roost   # the roost command
-roost                                          # opens the app; roost stop stops the server
+```text
+Install Roost for me. Follow "Install steps" in https://github.com/janwilmake/roost/blob/main/README.md
 ```
 
-Rebuild after you change the Node version or move this folder. The first run asks for permission to control Terminal.
-
-Two optional steps let the sessions know about Roost:
-
-1. Add `bin/picture-hook.sh` as a `UserPromptSubmit` hook in `~/.claude/settings.json`. Each session without a picture then sets one.
-2. Add a short note to `~/.claude/CLAUDE.md` that names Roost and points to this README. Then you can ask any session to rename itself, change its picture or join a topic.
-
-```json
-{ "hooks": { "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/path/to/roost/bin/picture-hook.sh", "timeout": 5 }] }] } }
-```
+Claude builds the app, adds the `roost` command, and tells every Claude session about Roost. After that you can ask any session to rename itself, change its picture or join a topic. To install by hand, follow the same [Install steps](#install-steps).
 
 ## Use
 
@@ -102,6 +91,33 @@ jq -n --arg photo "data:image/jpeg;base64,$(base64 -i face.jpg)" '{photo: $photo
 ```
 
 The value must be a base64 `data:image/jpeg`, `png` or `webp` URL of at most 400,000 characters. The API answers 200 on success and 400 on a bad value. The same request also accepts `title`. A session without a picture shows a default animal.
+
+## Install steps
+
+Do these steps in order. Tell the user what you did at the end. In the commands, `$ROOST` is the folder of the clone.
+
+1. **Check the requirements.** You need macOS 13 or later, Node 20 or later (`node -v`), `jq` (`jq --version`), and Swift (`swiftc --version`). If Swift is missing, ask the user to run `xcode-select --install`, and stop until it is installed.
+2. **Clone.** Clone `https://github.com/janwilmake/roost` into `~/roost`, unless the user names another folder. If the clone already exists, run `git pull` in it.
+3. **Build.** In `$ROOST`, run `./scripts/build-app.sh`. It builds `~/Applications/Roost.app`. Run it again after a change of the Node version or a move of the folder.
+4. **Add the command.** Run `mkdir -p ~/.local/bin && ln -sf "$ROOST/bin/roost.js" ~/.local/bin/roost`. If `~/.local/bin` is not on the `PATH`, tell the user.
+5. **Add the picture hook.** It asks each session without a picture to set one. This command keeps every other setting and adds the hook only once:
+
+   ```bash
+   f=~/.claude/settings.json; [ -f "$f" ] || echo '{}' > "$f"
+   jq --arg cmd "$ROOST/bin/picture-hook.sh" \
+     'if any(.hooks.UserPromptSubmit[]?.hooks[]?; .command == $cmd) then . else .hooks.UserPromptSubmit += [{hooks: [{type: "command", command: $cmd, timeout: 5}]}] end' \
+     "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+   ```
+
+6. **Tell every session about Roost.** Add this note to the end of `~/.claude/CLAUDE.md`. Create the file if it does not exist. Skip this step if the file already has a Roost note. Replace `$ROOST` with the real path:
+
+   ```markdown
+   # Roost
+
+   Roost is the strip of session icons at the left edge of the screen. It shows every running Claude Code session with a picture, a title and a status. When someone asks how Roost works, or asks to change this session's title, picture, topic or place in the strip, read `$ROOST/README.md` and use its local API. This session's id: `jq -r .sessionId ~/.claude/sessions/$PPID.json`.
+   ```
+
+7. **Open Roost.** Run `open ~/Applications/Roost.app`. Tell the user that macOS asks once for permission to control Terminal, and that Roost needs it. The hook and the note work in sessions that start after the install.
 
 ## How it works
 
