@@ -113,8 +113,11 @@ export function defaultAvatar(sessionId) {
   return AVATARS[hash % AVATARS.length];
 }
 
-/** Folders from Claude's prompt history, most sessions first. The `cca` agent slots are left out. */
-export function rankLocations(historyText) {
+/**
+ * Reads Claude's prompt history. `locations` are folders, most sessions first. `recent` are sessions,
+ * most recently used first. The `cca` agent slots are left out of both.
+ */
+export function summarizeHistory(historyText) {
   const sessions = new Map();
   for (const line of historyText.split('\n')) {
     let entry;
@@ -125,10 +128,30 @@ export function rankLocations(historyText) {
     }
     if (typeof entry?.project !== 'string' || typeof entry.sessionId !== 'string') continue;
     if (entry.project.includes('/.claude/agents/')) continue;
-    if (!sessions.has(entry.project)) sessions.set(entry.project, new Set());
-    sessions.get(entry.project).add(entry.sessionId);
+    const at = Number.isFinite(entry.timestamp) ? entry.timestamp : 0;
+    const known = sessions.get(entry.sessionId);
+    if (known) known.lastAt = Math.max(known.lastAt, at);
+    else sessions.set(entry.sessionId, { id: entry.sessionId, cwd: entry.project, firstPrompt: String(entry.display ?? ''), lastAt: at });
   }
-  return [...sessions].sort((a, b) => b[1].size - a[1].size).map(([project]) => project);
+  const perFolder = new Map();
+  for (const { cwd } of sessions.values()) perFolder.set(cwd, (perFolder.get(cwd) ?? 0) + 1);
+  return {
+    locations: [...perFolder].sort((a, b) => b[1] - a[1]).map(([cwd]) => cwd),
+    recent: [...sessions.values()].sort((a, b) => b.lastAt - a.lastAt),
+  };
+}
+
+/** Finds the last title that Claude Code wrote into a transcript. */
+export function lastAiTitle(transcriptText) {
+  let title = null;
+  for (const match of transcriptText.matchAll(/"type":"ai-title","aiTitle":("(?:[^"\\]|\\.)*")/g)) {
+    try {
+      title = JSON.parse(match[1]);
+    } catch {
+      // A cut-off line at the edge of the part that was read.
+    }
+  }
+  return title;
 }
 
 /** New sessions go at the end. Ended sessions keep their place, so a resumed one returns to it. */

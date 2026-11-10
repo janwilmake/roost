@@ -118,6 +118,8 @@ struct Face {
     let since: Double?
     let openedAt: Double?
     let snoozeUntil: Double?
+    let notes: String
+    let notesAt: Double?
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -134,10 +136,12 @@ struct Face {
         since = json["since"] as? Double
         openedAt = json["openedAt"] as? Double
         snoozeUntil = json["snoozeUntil"] as? Double
+        notes = json["notes"] as? String ?? ""
+        notesAt = json["notesAt"] as? Double
         topic = json["topic"] as? String
     }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -147,7 +151,8 @@ struct Face {
     var detail: String {
         let status = status == "snoozed" ? statusText : [statusText, Face.duration(since).map { "for \($0)" }].compactMap { $0 }.joined(separator: " ")
         let opened = Face.duration(openedAt).map { "open \($0)" } ?? ""
-        return [status, folder, screenName ?? "", opened].filter { !$0.isEmpty }.joined(separator: " · ")
+        let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
+        return [status, folder, screenName ?? "", opened, noted].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     private var statusText: String {
@@ -258,6 +263,7 @@ final class StripView: NSView {
         let title: String
         let sessionId: String?
         let stripe: NSView?
+        let notes: String
         let detail: () -> String
         var reveal: CGFloat = 1
         var revealTarget: CGFloat = 1
@@ -277,9 +283,10 @@ final class StripView: NSView {
 
     var isBusy: Bool { timer != nil }
 
-    func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, detail: @escaping () -> String) {
+    func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, notes: String = "",
+             detail: @escaping () -> String) {
         let stripe = endsTopic ? TopicEndView(frame: .zero) : nil
-        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, detail: detail))
+        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, notes: notes, detail: detail))
         addSubview(view)
         if let stripe { addSubview(stripe) }
         placeItems()
@@ -393,10 +400,13 @@ final class StripView: NSView {
         let index = min(max(Int((cursor - perchSize / 2 + stripStep / 2) / stripStep), 0), items.count - 1)
         let item = items[index]
         let detail = item.detail()
-        let size = TooltipView.size(title: item.title, detail: detail)
-        let frame = NSRect(
-            x: window.frame.minX + item.view.frame.maxX + 8, y: window.frame.minY + item.view.frame.midY - size.height / 2,
-            width: size.width, height: size.height)
+        let size = TooltipView.size(title: item.title, detail: detail, notes: item.notes)
+        let tileMid = window.frame.minY + item.view.frame.midY
+        var frame = NSRect(x: window.frame.minX + item.view.frame.maxX + 8, y: tileMid - size.height / 2, width: size.width, height: size.height)
+        // Long notes make a tall label. It stays on the screen, and its arrow keeps pointing at the tile.
+        if let visible = window.screen?.visibleFrame {
+            frame.origin.y = max(min(frame.minY, visible.maxY - 4 - frame.height), visible.minY + 4)
+        }
 
         let panel = tooltip ?? makeOverlayPanel(frame: frame)
         if tooltip == nil {
@@ -405,7 +415,7 @@ final class StripView: NSView {
             tooltip = panel
         }
         panel.setFrame(frame, display: false)
-        (panel.contentView as? TooltipView)?.show(title: item.title, detail: detail)
+        (panel.contentView as? TooltipView)?.show(title: item.title, detail: detail, notes: item.notes, arrowY: tileMid - frame.minY)
         panel.orderFrontRegardless()
     }
 
@@ -713,7 +723,7 @@ final class TopicView: TileView {
     }
 }
 
-/// The label beside a hovered picture, like the one the Dock shows.
+/// The label beside a hovered picture, like the one the Dock shows. A session's notes follow below its status.
 final class TooltipView: NSView {
     private static let arrow: CGFloat = 6
     private static let padding: CGFloat = 11
@@ -723,46 +733,80 @@ final class TooltipView: NSView {
         style.lineBreakMode = .byTruncatingTail
         return style
     }()
+    private static let notesStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byWordWrapping
+        style.paragraphSpacing = 4
+        return style
+    }()
     private static let titleAttributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 13, weight: .medium), .foregroundColor: NSColor.white, .paragraphStyle: lineStyle,
     ]
     private static let detailAttributes: [NSAttributedString.Key: Any] = [
         .font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.white.withAlphaComponent(0.7), .paragraphStyle: lineStyle,
     ]
+    static let notesAttributes: [NSAttributedString.Key: Any] = [
+        .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.white.withAlphaComponent(0.92), .paragraphStyle: notesStyle,
+    ]
 
     private var title = ""
     private var detail = ""
+    private var notes = ""
+    private var arrowY: CGFloat?
 
-    func show(title: String, detail: String) {
+    func show(title: String, detail: String, notes: String, arrowY: CGFloat) {
         self.title = title
         self.detail = detail
+        self.notes = notes
+        self.arrowY = arrowY
         needsDisplay = true
     }
 
-    static func size(title: String, detail: String) -> NSSize {
+    private static func headerHeight(_ detail: String) -> CGFloat { detail.isEmpty ? 28 : 44 }
+
+    static func notesHeight(_ notes: String, width: CGFloat) -> CGFloat {
+        ceil((notes as NSString).boundingRect(
+            with: NSSize(width: width, height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: notesAttributes).height)
+    }
+
+    static func size(title: String, detail: String, notes: String) -> NSSize {
         let widest = max((title as NSString).size(withAttributes: titleAttributes).width, (detail as NSString).size(withAttributes: detailAttributes).width)
-        return NSSize(width: min(ceil(widest), maxWidth) + 2 * padding + arrow, height: detail.isEmpty ? 28 : 44)
+        guard !notes.isEmpty else {
+            return NSSize(width: min(ceil(widest), maxWidth) + 2 * padding + arrow, height: headerHeight(detail))
+        }
+        return NSSize(width: maxWidth + 2 * padding + arrow, height: headerHeight(detail) + notesHeight(notes, width: maxWidth) + 12)
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let pill = NSRect(x: Self.arrow, y: 0, width: bounds.width - Self.arrow, height: bounds.height)
         Palette.tooltip.setFill()
         NSBezierPath(roundedRect: pill, xRadius: 7, yRadius: 7).fill()
+        let tip = min(max(arrowY ?? bounds.midY, Self.arrow + 6), bounds.height - Self.arrow - 6)
         let pointer = NSBezierPath()
-        pointer.move(to: NSPoint(x: 0, y: bounds.midY))
-        pointer.line(to: NSPoint(x: Self.arrow + 1, y: bounds.midY + Self.arrow))
-        pointer.line(to: NSPoint(x: Self.arrow + 1, y: bounds.midY - Self.arrow))
+        pointer.move(to: NSPoint(x: 0, y: tip))
+        pointer.line(to: NSPoint(x: Self.arrow + 1, y: tip + Self.arrow))
+        pointer.line(to: NSPoint(x: Self.arrow + 1, y: tip - Self.arrow))
         pointer.close()
         pointer.fill()
 
         let width = pill.width - 2 * Self.padding
         let x = pill.minX + Self.padding
+        let top = bounds.height
         if detail.isEmpty {
-            (title as NSString).draw(in: NSRect(x: x, y: 5, width: width, height: 18), withAttributes: Self.titleAttributes)
+            (title as NSString).draw(in: NSRect(x: x, y: top - 23, width: width, height: 18), withAttributes: Self.titleAttributes)
         } else {
-            (title as NSString).draw(in: NSRect(x: x, y: 22, width: width, height: 18), withAttributes: Self.titleAttributes)
-            (detail as NSString).draw(in: NSRect(x: x, y: 6, width: width, height: 16), withAttributes: Self.detailAttributes)
+            (title as NSString).draw(in: NSRect(x: x, y: top - 22, width: width, height: 18), withAttributes: Self.titleAttributes)
+            (detail as NSString).draw(in: NSRect(x: x, y: top - 38, width: width, height: 16), withAttributes: Self.detailAttributes)
         }
+        guard !notes.isEmpty else { return }
+        let header = Self.headerHeight(detail)
+        NSColor.white.withAlphaComponent(0.12).setFill()
+        NSRect(x: x, y: top - header + 1, width: width, height: 1).fill()
+        let height = Self.notesHeight(notes, width: width)
+        (notes as NSString).draw(
+            with: NSRect(x: x, y: top - header - 4 - height, width: width, height: height),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: Self.notesAttributes)
     }
 }
 
@@ -784,6 +828,182 @@ final class FlashView: NSView {
         outline.lineWidth = 8
         Palette.flash.setStroke()
         outline.stroke()
+    }
+}
+
+// MARK: - Overview
+
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+/// Closes on Escape, like a sheet.
+final class OverviewPanel: NSPanel {
+    override func cancelOperation(_ sender: Any?) { close() }
+}
+
+/// One session in the overview: picture, title, status and notes. A click opens the session.
+final class OverviewRow: NSView {
+    static let picture: CGFloat = 44
+    static let inset: CGFloat = 12
+    private static let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .foregroundColor: NSColor.labelColor]
+    private static let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.secondaryLabelColor]
+    private static let notesAttributes: [NSAttributedString.Key: Any] = {
+        let style = NSMutableParagraphStyle()
+        style.paragraphSpacing = 4
+        return [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]
+    }()
+
+    private let face: Face
+    private let onOpen: () -> Void
+    private var hovered = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    init(face: Face, width: CGFloat, onOpen: @escaping () -> Void) {
+        self.face = face
+        self.onOpen = onOpen
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height(for: face, width: width)))
+        let picture = FaceView(frame: NSRect(x: Self.inset, y: Self.inset, width: Self.picture, height: Self.picture), face: face)
+        picture.onClick = onOpen
+        addSubview(picture)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    private static func textWidth(_ width: CGFloat) -> CGFloat { width - picture - 3 * inset }
+
+    static func height(for face: Face, width: CGFloat) -> CGFloat {
+        var text: CGFloat = 20 + 16
+        if !face.notes.isEmpty {
+            text += 8 + ceil((face.notes as NSString).boundingRect(
+                with: NSSize(width: textWidth(width), height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: notesAttributes).height)
+        }
+        return max(picture, text) + 2 * inset
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true }
+    override func mouseExited(with event: NSEvent) { hovered = false }
+    override func mouseUp(with event: NSEvent) { onOpen() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovered {
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 2), xRadius: 8, yRadius: 8).fill()
+        }
+        let x = Self.inset * 2 + Self.picture
+        let width = Self.textWidth(bounds.width)
+        (face.title as NSString).draw(
+            with: NSRect(x: x, y: Self.inset, width: width, height: 20), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: Self.titleAttributes)
+        (face.detail as NSString).draw(
+            with: NSRect(x: x, y: Self.inset + 20, width: width, height: 16), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
+            attributes: Self.detailAttributes)
+        guard !face.notes.isEmpty else { return }
+        (face.notes as NSString).draw(
+            with: NSRect(x: x, y: Self.inset + 44, width: width, height: bounds.height - Self.inset * 2 - 44),
+            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: Self.notesAttributes)
+    }
+}
+
+/// Every session in strip order, with its title, status and notes. The rooster opens it.
+final class Overview: NSObject, NSWindowDelegate {
+    private let panel: OverviewPanel
+    private let scroll = NSScrollView()
+    private var faces: [Face] = []
+    private var topics: [Topic] = []
+    var onOpen: (String) -> Void = { _ in }
+
+    var isVisible: Bool { panel.isVisible }
+
+    override init() {
+        panel = OverviewPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 640), styleMask: [.titled, .closable, .resizable, .utilityWindow],
+            backing: .buffered, defer: false)
+        super.init()
+        panel.title = "Roost"
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.minSize = NSSize(width: 360, height: 240)
+        panel.delegate = self
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = false
+        panel.contentView = scroll
+    }
+
+    func toggle(faces: [Face], topics: [Topic], beside anchor: NSRect) {
+        if panel.isVisible {
+            panel.close()
+            return
+        }
+        self.faces = faces
+        self.topics = topics
+        rebuild()
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? .zero
+        let height = min(panel.frame.height, visible.height - 40)
+        panel.setFrame(NSRect(x: anchor.maxX + 16, y: anchor.maxY - height, width: panel.frame.width, height: height), display: false)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func update(faces: [Face], topics: [Topic]) {
+        self.faces = faces
+        self.topics = topics
+        if panel.isVisible { rebuild() }
+    }
+
+    func windowDidResize(_ notification: Notification) { rebuild() }
+
+    private func rebuild() {
+        let width = scroll.contentSize.width
+        let document = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 0))
+        var y: CGFloat = 6
+        let expanded = topics.map { topic -> Topic in
+            var open = topic
+            open.collapsed = false
+            return open
+        }
+        for entry in entries(faces: faces, topics: expanded) {
+            switch entry {
+            case .topic(let topic, let members):
+                let header = NSTextField(labelWithString: "\(topic.name.uppercased())  ·  \(topicDetail(members, collapsed: false).components(separatedBy: " · ").dropLast().joined(separator: " · "))")
+                header.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+                header.textColor = .secondaryLabelColor
+                header.frame = NSRect(x: OverviewRow.inset, y: y + 10, width: width - 2 * OverviewRow.inset, height: 16)
+                document.addSubview(header)
+                y += 30
+            case .face(let face):
+                let row = OverviewRow(face: face, width: width) { [weak self] in
+                    self?.onOpen(face.id)
+                    self?.panel.close()
+                }
+                row.frame.origin.y = y
+                document.addSubview(row)
+                y += row.frame.height
+            }
+        }
+        if faces.isEmpty {
+            let empty = NSTextField(labelWithString: "No Claude Code sessions are running.")
+            empty.textColor = .secondaryLabelColor
+            empty.frame = NSRect(x: OverviewRow.inset, y: 16, width: width - 2 * OverviewRow.inset, height: 18)
+            document.addSubview(empty)
+            y = 50
+        }
+        document.setFrameSize(NSSize(width: width, height: max(y + 6, scroll.contentSize.height)))
+        let origin = scroll.contentView.bounds.origin
+        scroll.documentView = document
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(origin.y, max(0, document.frame.height - scroll.contentSize.height))))
     }
 }
 
@@ -882,6 +1102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliesNextPoll = false
     private var isCollapsing = false
     private var editor: TitleEditor?
+    private let overview = Overview()
 
     private var perchOffset: NSPoint {
         get {
@@ -896,6 +1117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        overview.onOpen = { [weak self] id in self?.post("api/sessions/\(id)/open") }
         buildMenu()
         layoutStrips()
         NotificationCenter.default.addObserver(
@@ -994,7 +1216,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rooster = RoosterView(frame: itemFrame)
         rooster.onClick = { [weak self, weak rooster] in
-            if let self, let rooster, let event = NSApp.currentEvent { self.showRoosterMenu(event, rooster) }
+            if let self, let rooster { self.overview.toggle(faces: self.faces, topics: self.topics, beside: self.screenRect(of: rooster)) }
         }
         rooster.onMenu = { [weak self] event, view in self?.showRoosterMenu(event, view) }
         rooster.onMoved = { [weak self, weak panel] in
@@ -1011,7 +1233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 view.onClick = { [weak self] in self?.post("api/sessions/\(face.id)/open") }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: face, event, view) }
                 let next = index + 1 < shown.count ? shown[index + 1].memberOf : nil
-                content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic) { face.detail }
+                content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic,
+                            notes: face.notes) { face.detail }
             case .topic(let topic, let members):
                 let view = TopicView(frame: itemFrame, members: members)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
@@ -1099,36 +1322,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showRoosterMenu(_ event: NSEvent, _ view: NSView) {
         let menu = NSMenu()
+        menu.addItem(ActionItem("Overview") { [weak self, weak view] in
+            guard let self, let view else { return }
+            self.overview.toggle(faces: self.faces, topics: self.topics, beside: self.screenRect(of: view))
+        })
+        menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Roost") { NSApp.terminate(nil) })
         NSMenu.popUpContextMenu(menu, with: event, for: view)
     }
 
-    /// The menu waits for the folder list, so it opens at the tile rather than at the click event.
+    /// The menu waits for the folder list and the recent sessions, so it opens at the tile rather than at the click event.
     private func showStartMenu(beside view: NSView) {
-        URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/locations")) { [weak self, weak view] data, _, _ in
+        var locations: [String] = []
+        var recent: [[String: Any]] = []
+        let group = DispatchGroup()
+        group.enter()
+        URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/locations")) { data, _, _ in
             let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            let locations = root?["locations"] as? [String] ?? []
-            DispatchQueue.main.async {
-                guard let self, let view, view.window != nil else { return }
-                self.startMenu(locations).popUp(positioning: nil, at: point(view.bounds.maxX + 4, view.bounds.maxY), in: view)
-            }
+            locations = root?["locations"] as? [String] ?? []
+            group.leave()
         }.resume()
+        group.enter()
+        URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/recent")) { data, _, _ in
+            let root = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            recent = root?["sessions"] as? [[String: Any]] ?? []
+            group.leave()
+        }.resume()
+        group.notify(queue: .main) { [weak self, weak view] in
+            guard let self, let view, view.window != nil else { return }
+            self.startMenu(locations, recent: recent).popUp(positioning: nil, at: point(view.bounds.maxX + 4, view.bounds.maxY), in: view)
+        }
     }
 
-    private func startMenu(_ locations: [String]) -> NSMenu {
+    private func menuItem(_ name: String, note: String, action: @escaping () -> Void) -> ActionItem {
+        let item = ActionItem(name, handler: action)
+        let title = NSMutableAttributedString(string: name, attributes: [.font: NSFont.menuFont(ofSize: 0)])
+        title.append(NSAttributedString(string: "  \(note)", attributes: [.font: NSFont.menuFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
+        item.attributedTitle = title
+        return item
+    }
+
+    private func startMenu(_ locations: [String], recent: [[String: Any]]) -> NSMenu {
         let menu = NSMenu()
         for path in locations {
-            let item = ActionItem((path as NSString).lastPathComponent) { [weak self] in self?.start(in: path) }
-            let title = NSMutableAttributedString(string: item.title, attributes: [.font: NSFont.menuFont(ofSize: 0)])
             let parent = ((path as NSString).deletingLastPathComponent as NSString).abbreviatingWithTildeInPath
-            title.append(NSAttributedString(
-                string: "  \(parent)", attributes: [.font: NSFont.menuFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor]))
-            item.attributedTitle = title
-            menu.addItem(item)
+            menu.addItem(menuItem((path as NSString).lastPathComponent, note: parent) { [weak self] in self?.start(in: path) })
         }
         if !locations.isEmpty { menu.addItem(.separator()) }
+        let sessions = recent.compactMap { session -> (id: String, title: String, at: Double)? in
+            guard let id = session["id"] as? String, let title = session["title"] as? String, let at = session["lastAt"] as? Double else { return nil }
+            return (id, title, at)
+        }
+        if !sessions.isEmpty {
+            let item = NSMenuItem(title: "Recent", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for session in sessions {
+                let short = session.title.count > 60 ? String(session.title.prefix(59)) + "…" : session.title
+                submenu.addItem(menuItem(short, note: Self.when(session.at)) { [weak self] in
+                    self?.post("api/resume", ["id": session.id])
+                })
+            }
+            item.submenu = submenu
+            menu.addItem(item)
+        }
         menu.addItem(ActionItem("New Location…") { [weak self] in self?.chooseLocation() })
         return menu
+    }
+
+    private static func when(_ milliseconds: Double) -> String {
+        let date = Date(timeIntervalSince1970: milliseconds / 1000)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        if Calendar.current.isDateInToday(date) { return "today \(formatter.string(from: date))" }
+        if Calendar.current.isDateInYesterday(date) { return "yesterday \(formatter.string(from: date))" }
+        formatter.dateFormat = "EEE d MMM"
+        return formatter.string(from: date)
     }
 
     private func chooseLocation() {
@@ -1313,6 +1581,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.faces = faces
         self.topics = topics
         layoutStrips()
+        overview.update(faces: faces, topics: topics)
     }
 
     private func post(_ path: String, _ body: [String: Any] = [:]) {

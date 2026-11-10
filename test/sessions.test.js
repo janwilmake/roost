@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, rankLocations } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -86,15 +86,24 @@ test('a shell that only mentions screen in its arguments is not a screen session
   assert.deepEqual(locate(71, processes, []), { tab: null, screenName: null });
 });
 
-test('locations rank by number of sessions and skip agent slots and bad lines', () => {
-  const line = (project, sessionId) => JSON.stringify({ project, sessionId, display: 'x' });
+test('history gives folders by session count and sessions by last use, without agent slots', () => {
+  const line = (project, sessionId, timestamp, display = 'x') => JSON.stringify({ project, sessionId, timestamp, display });
   const history = [
-    line('/w/a', '1'), line('/w/a', '1'), line('/w/a', '1'),
-    line('/w/b', '2'), line('/w/b', '3'),
-    line('/Users/x/.claude/agents/agent-1', '4'), line('/Users/x/.claude/agents/agent-1', '5'),
+    line('/w/a', '1', 10, 'first prompt'), line('/w/a', '1', 50),
+    line('/w/b', '2', 20), line('/w/b', '3', 30),
+    line('/Users/x/.claude/agents/agent-1', '4', 99), line('/Users/x/.claude/agents/agent-1', '5', 98),
     'not json', '',
   ].join('\n');
-  assert.deepEqual(rankLocations(history), ['/w/b', '/w/a']);
+  const { locations, recent } = summarizeHistory(history);
+  assert.deepEqual(locations, ['/w/b', '/w/a']);
+  assert.deepEqual(recent.map(({ id }) => id), ['1', '3', '2']);
+  assert.deepEqual(recent[0], { id: '1', cwd: '/w/a', firstPrompt: 'first prompt', lastAt: 50 });
+});
+
+test('the last AI title in a transcript wins, and a cut-off line is skipped', () => {
+  const text = '{"type":"ai-title","aiTitle":"Old"}\n{"type":"ai-title","aiTitle":"New \\"one\\""}\n{"type":"ai-title","aiTitle":"Cut';
+  assert.equal(lastAiTitle(text), 'New "one"');
+  assert.equal(lastAiTitle('nothing here'), null);
 });
 
 test('new sessions go at the end, and ended sessions keep their place', () => {
@@ -114,8 +123,10 @@ test('topic fields are validated', () => {
 });
 
 test('validatePatch keeps only known fields and rejects bad values', () => {
-  assert.deepEqual(validatePatch({ title: 'x', notes: 'y', lastSeenAt: 5 }), { title: 'x' });
+  assert.deepEqual(validatePatch({ title: 'x', description: 'y', lastSeenAt: 5 }), { title: 'x' });
   assert.throws(() => validatePatch({ photo: 'javascript:alert(1)' }));
   assert.throws(() => validatePatch({ snoozeUntil: 'soon' }));
   assert.deepEqual(validatePatch({ photo: null, snoozeUntil: null }), { photo: null, snoozeUntil: null });
+  assert.deepEqual(validatePatch({ notes: '  Waits for the client. ' }), { notes: 'Waits for the client.' });
+  assert.throws(() => validatePatch({ notes: 'x'.repeat(3001) }));
 });

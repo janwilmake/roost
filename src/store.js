@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const LIMITS = { emoji: 32, title: 200, photo: 400_000, topicName: 80, topicId: 64 };
+const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64 };
 
 export async function openStore(home) {
   await mkdir(home, { recursive: true, mode: 0o700 });
@@ -77,6 +77,10 @@ export function validatePatch(body) {
     if (!(key in body)) continue;
     if (typeof body[key] !== 'string' || body[key].length > LIMITS[key]) throw new Error(`Bad ${key}`);
     patch[key] = body[key];
+  }
+  if ('notes' in body) {
+    if (body.notes !== null && (typeof body.notes !== 'string' || body.notes.length > LIMITS.notes)) throw new Error('Bad notes');
+    patch.notes = body.notes === null ? null : body.notes.trim();
   }
   if ('photo' in body) {
     const valid = body.photo === null || (typeof body.photo === 'string' && body.photo.length <= LIMITS.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(body.photo));

@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { open, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
 import {
@@ -11,8 +11,9 @@ import {
   mergeOrder,
   parseProcesses,
   parseTabs,
-  rankLocations,
+  lastAiTitle,
   readSessionFiles,
+  summarizeHistory,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { focusTab, listProcesses, listTabs, openViewer, startClaude } from './terminal.js';
@@ -22,6 +23,10 @@ const HOME = process.env.ROOST_HOME ?? join(homedir(), '.roost');
 const SESSIONS_DIR = process.env.ROOST_SESSIONS_DIR ?? join(homedir(), '.claude', 'sessions');
 const HISTORY_FILE = process.env.ROOST_HISTORY_FILE ?? join(homedir(), '.claude', 'history.jsonl');
 const LOCATION_COUNT = 5;
+const RECENT_COUNT = 10;
+const PROJECTS_DIR = join(homedir(), '.claude', 'projects');
+const TRANSCRIPT_TAIL = 256 * 1024;
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY = 1024 * 1024;
 const TABS_MAX_AGE_MS = 3000;
 const FLASH_WAIT_MS = 25_000;
@@ -90,10 +95,17 @@ async function snapshot() {
         changed = true;
       }
       const tabTitle = tab && tab.title !== screenName && tab.title !== 'Terminal' ? tab.title : '';
+      const title = saved.title || tabTitle || file.name || id.slice(0, 8);
+      // The Recent menu shows this title once the session has ended.
+      if (saved.seenTitle !== title) {
+        store.update(id, { seenTitle: title });
+        saved = store.get(id);
+        changed = true;
+      }
       return {
         id,
         pid: file.pid,
-        title: saved.title || tabTitle || file.name || id.slice(0, 8),
+        title,
         autoTitle: tabTitle || file.name || '',
         folder: basename(file.cwd ?? ''),
         status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, lastSeenAt: saved.lastSeenAt }),
@@ -105,6 +117,8 @@ async function snapshot() {
         emoji: saved.emoji || defaultAvatar(id),
         photo: saved.photo ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
+        notes: saved.notes || null,
+        notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         topic: topicIds.has(saved.topic) ? saved.topic : null,
         screenName,
         openable: Boolean(tab || screenName),
@@ -174,18 +188,58 @@ async function isFolder(path) {
 }
 
 // The history file is large and changes with every prompt, so it is read again only when it changed.
-let ranked = { key: '', locations: [] };
-async function topLocations() {
+let history = { key: '', locations: [], recent: [] };
+async function readHistory() {
   const info = await stat(HISTORY_FILE).catch(() => null);
-  if (!info) return [];
+  if (!info) return { locations: [], recent: [] };
   const key = `${info.mtimeMs}:${info.size}`;
-  if (ranked.key !== key) ranked = { key, locations: rankLocations(await readFile(HISTORY_FILE, 'utf8')) };
+  if (history.key !== key) history = { key, ...summarizeHistory(await readFile(HISTORY_FILE, 'utf8')) };
+  return history;
+}
+
+async function topLocations() {
   const found = [];
-  for (const path of ranked.locations) {
+  for (const path of (await readHistory()).locations) {
     if (found.length === LOCATION_COUNT) break;
     if (await isFolder(path)) found.push(path);
   }
   return found;
+}
+
+/** Reads only the end of a transcript: they grow to many megabytes, and Claude repeats its title often. */
+async function claudeTitle(cwd, id) {
+  const file = await open(join(PROJECTS_DIR, cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${id}.jsonl`)).catch(() => null);
+  if (!file) return null;
+  try {
+    const { size } = await file.stat();
+    const length = Math.min(size, TRANSCRIPT_TAIL);
+    const { buffer } = await file.read(Buffer.alloc(length), 0, length, size - length);
+    return lastAiTitle(buffer.toString('utf8'));
+  } finally {
+    await file.close();
+  }
+}
+
+/** The last sessions that no longer run, with the title the strip showed for them. */
+async function recentSessions() {
+  const { live } = await loadLive();
+  const running = new Set(live.map(({ file }) => file.sessionId));
+  const recent = [];
+  for (const session of (await readHistory()).recent) {
+    if (recent.length === RECENT_COUNT) break;
+    if (running.has(session.id) || !SESSION_ID.test(session.id) || !(await isFolder(session.cwd))) continue;
+    const saved = store.get(session.id);
+    const title = saved.title || saved.seenTitle || (await claudeTitle(session.cwd, session.id)) || session.firstPrompt.slice(0, 60) || session.id.slice(0, 8);
+    recent.push({ id: session.id, title, cwd: session.cwd, lastAt: session.lastAt });
+  }
+  return recent;
+}
+
+async function resumeSession(id) {
+  const session = typeof id === 'string' && SESSION_ID.test(id) ? (await readHistory()).recent.find((candidate) => candidate.id === id) : null;
+  if (!session || !(await isFolder(session.cwd))) return { status: 404, body: { error: 'Unknown session' } };
+  flashWindow(await startClaude(session.cwd, session.id));
+  return { status: 200, body: { ok: true } };
 }
 
 async function startSession(cwd) {
@@ -233,6 +287,7 @@ async function handleApi(req, url) {
   if (req.method === 'GET' && url.pathname === '/api/sessions') return { status: 200, body: await latestSnapshot() };
   if (req.method === 'GET' && url.pathname === '/api/flash') return { status: 200, body: { bounds: await nextFlash() } };
   if (req.method === 'GET' && url.pathname === '/api/locations') return { status: 200, body: { locations: await topLocations() } };
+  if (req.method === 'GET' && url.pathname === '/api/recent') return { status: 200, body: { sessions: await recentSessions() } };
 
   if (req.method !== 'POST') return { status: 404, body: { error: 'Not found' } };
   const body = await readJson(req);
@@ -247,6 +302,7 @@ async function handleApi(req, url) {
 
   if (url.pathname === '/api/topics') return createTopic(body);
   if (url.pathname === '/api/start') return startSession(body.cwd);
+  if (url.pathname === '/api/resume') return resumeSession(body.id);
 
   const topicRoute = /^\/api\/topics\/([\w-]+)(\/delete)?$/.exec(url.pathname);
   if (topicRoute) {
@@ -264,7 +320,9 @@ async function handleApi(req, url) {
     const bounds = await focusKnownTab(id);
     return bounds ? markOpened(id, bounds) : openSession(id);
   }
-  store.update(id, action === 'seen' ? { lastSeenAt: Date.now() } : validatePatch(body));
+  const patch = action === 'seen' ? { lastSeenAt: Date.now() } : validatePatch(body);
+  if ('notes' in patch) patch.notesAt = Date.now();
+  store.update(id, patch);
   await store.save();
   return { status: 200, body: await freshSnapshotAfterWrite() };
 }

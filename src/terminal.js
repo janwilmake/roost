@@ -44,8 +44,10 @@ end run
 
 const START_CLAUDE = `
 on run argv
+  set command to "cd " & quoted form of (item 1 of argv) & " && claude --dangerously-skip-permissions"
+  if (item 2 of argv) is not "" then set command to command & " --resume " & quoted form of (item 2 of argv)
   tell application "Terminal"
-    do script ("cd " & quoted form of (item 1 of argv) & " && claude --dangerously-skip-permissions")
+    do script command
     activate
     return bounds of front window
   end tell
@@ -68,9 +70,9 @@ export async function focusTab(tab) {
   return parseBounds(stdout);
 }
 
-/** Opens a new Terminal window that runs Claude in the folder, and returns its bounds. */
-export async function startClaude(cwd) {
-  const { stdout } = await run('/usr/bin/osascript', ['-e', START_CLAUDE, cwd], { timeout: 5000 });
+/** Opens a new Terminal window that runs Claude in the folder, resumes a session if given, and returns its bounds. */
+export async function startClaude(cwd, resumeId = '') {
+  const { stdout } = await run('/usr/bin/osascript', ['-e', START_CLAUDE, cwd, resumeId], { timeout: 5000 });
   return parseBounds(stdout);
 }
 

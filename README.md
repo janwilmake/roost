@@ -28,8 +28,9 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Right-click a session     | Open, Rename, Mark as Seen, Snooze or Wake, Move to Topic.                    |
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
-| Drag or click the rooster | Dragging moves the strip on every screen. A click offers Quit.                |
-| Click the + tile          | Start a session in one of your 5 most used folders, or choose a new folder.   |
+| Click the rooster         | The overview opens: every session with its title, status and notes.          |
+| Drag the rooster          | The strip moves on every screen. Right-click it to quit.                      |
+| Click the + tile          | Start a session in a frequent folder or a new one, or resume a recent one.    |
 
 When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
 
@@ -57,6 +58,27 @@ jq -n --arg name 'Customers' '{name: $name, sessionIds: ["<id>", "<id>"]}' |
 ```
 
 To add one session later, send `{"topic":"<topic id>"}` to `/api/sessions/<id>`. The response of `GET /api/sessions` lists `topics` with their ids.
+
+## For AI agents: write notes
+
+Notes show in full when the user hovers the session, and in the overview that opens from the rooster. Use this format, and leave out a section that is empty:
+
+```text
+About: one line on what this session is for.
+Waiting for you:
+- each thing the user must do or decide
+Waiting for others:
+- each thing an outside party must do, with who
+```
+
+Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
+
+```bash
+jq -n --arg notes "$NOTES" '{notes: $notes}' |
+  curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' -d @- http://127.0.0.1:4777/api/sessions/<id>
+```
+
+The value is plain text of at most 3,000 characters. Send `null` to remove the notes.
 
 ## For AI agents: set a session's picture
 
@@ -116,7 +138,7 @@ Do these steps in order. Tell the user what you did at the end. In the commands,
    ```markdown
    # Roost
 
-   Roost is the strip of session icons at the left edge of the screen. It shows every running Claude Code session with a picture, a title and a status. When someone asks how Roost works, or asks to change this session's title, picture, topic or place in the strip, read `$ROOST/README.md` and use its local API. This session's id: `jq -r .sessionId ~/.claude/sessions/$PPID.json`.
+   Roost is the strip of session icons at the left edge of the screen. It shows every running Claude Code session with a picture, a title and a status. When someone asks how Roost works, or asks to change this session's title, picture, notes, topic or place in the strip, read `$ROOST/README.md` and use its local API. This session's id: `jq -r .sessionId ~/.claude/sessions/$PPID.json`. Keep this session's Roost notes current, in the format the README gives.
    ```
 
 7. **Open Roost.** Run `open ~/Applications/Roost.app`. Tell the user that macOS asks once for permission to control Terminal, and that Roost needs it. The hook and the note work in sessions that start after the install.
