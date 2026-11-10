@@ -71,13 +71,13 @@ Waiting for others:
 - each thing an outside party must do, with who
 ```
 
-A session about a customer starts its notes with this header. The counts are the items in the two lists. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
+A session about a customer starts its notes with this header. The counts are the items in the two lists. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
 
 ```text
 Waiting for us: 2 · Waiting for them: 1
-Last meeting: Lisa, Tue 10 Nov 14:00
-Last message: Lisa → us, Tue 10 Nov 16:12 (email)
-Next meeting: Lisa, Thu 12 Nov 10:00
+Last meeting: Sam with Lisa (Acme), Tue 10 Nov 14:00
+Last message: Lisa (Acme) → Robin, Tue 10 Nov 16:12 (email)
+Next meeting: Sam with Lisa (Acme), Thu 12 Nov 10:00
 ```
 
 Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
@@ -88,6 +88,15 @@ jq -n --arg notes "$NOTES" '{notes: $notes}' |
 ```
 
 The value is plain text of at most 3,000 characters. Send `null` to remove the notes.
+
+## For AI agents: message another session
+
+Claude Code's `SendMessage` tool reaches another local session by the name that `ListAgents` shows. Roost gives that name as `agentName`, next to the title, topic and notes. So one request finds the sessions to message, for example every session in a topic:
+
+```bash
+curl -s http://127.0.0.1:4777/api/sessions |
+  jq -r --arg topic 'Customers' '(.topics[] | select(.name == $topic) | .id) as $id | .sessions[] | select(.topic == $id) | [.agentName, .title] | @tsv'
+```
 
 ## For AI agents: set a session's picture
 

@@ -118,6 +118,7 @@ async function snapshot() {
         photo: saved.photo ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
+        agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         topic: topicIds.has(saved.topic) ? saved.topic : null,
         screenName,
