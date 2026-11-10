@@ -120,6 +120,7 @@ struct Face {
     let snoozeUntil: Double?
     let notes: String
     let notesAt: Double?
+    let waiting: Int
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -138,10 +139,11 @@ struct Face {
         snoozeUntil = json["snoozeUntil"] as? Double
         notes = json["notes"] as? String ?? ""
         notesAt = json["notesAt"] as? Double
+        waiting = json["waiting"] as? Int ?? 0
         topic = json["topic"] as? String
     }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -615,20 +617,29 @@ final class SpinnerView: NSView {
 }
 
 /// A tile with a red dot when it needs the user and a spinner while it works.
+/// A tile with a red dot when it needs the user, or a red badge with the number of things that wait for the user,
+/// and a spinner while it works.
 class TileView: StripItemView {
     private let status: String
+    private let waiting: Int
     private var spinner: SpinnerView?
 
-    private var badgeRect: NSRect {
+    private var showsCount: Bool { waiting > 0 && status != "snoozed" }
+
+    private var dotRect: NSRect {
         let side = bounds.width * 0.3
         return NSRect(x: bounds.maxX - side, y: bounds.maxY - side, width: side, height: side)
     }
 
-    init(frame: NSRect, status: String) {
+    /// The badge has the top-right corner, so the spinner moves down.
+    private var spinnerRect: NSRect { showsCount ? dotRect.offsetBy(dx: 0, dy: -(bounds.height - dotRect.height)) : dotRect }
+
+    init(frame: NSRect, status: String, waiting: Int) {
         self.status = status
+        self.waiting = waiting
         super.init(frame: frame)
         if status == "working" {
-            let spinner = SpinnerView(frame: badgeRect)
+            let spinner = SpinnerView(frame: spinnerRect)
             addSubview(spinner)
             self.spinner = spinner
         }
@@ -638,13 +649,30 @@ class TileView: StripItemView {
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        spinner?.frame = badgeRect
+        spinner?.frame = spinnerRect
     }
 
     func drawNotificationDot() {
-        guard status == "needs-me" else { return }
+        if showsCount {
+            drawCount()
+        } else if status == "needs-me" {
+            NSColor.systemRed.setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+        }
+    }
+
+    private func drawCount() {
+        let text = waiting > 99 ? "99+" : String(waiting)
+        let height = bounds.width * 0.38
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: height * 0.68, weight: .semibold), .foregroundColor: NSColor.white,
+        ]
+        let size = (text as NSString).size(withAttributes: attributes)
+        let width = max(height, size.width + height * 0.55)
+        let badge = NSRect(x: bounds.maxX - width, y: bounds.maxY - height, width: width, height: height)
         NSColor.systemRed.setFill()
-        NSBezierPath(ovalIn: badgeRect).fill()
+        NSBezierPath(roundedRect: badge, xRadius: height / 2, yRadius: height / 2).fill()
+        (text as NSString).draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2), withAttributes: attributes)
     }
 }
 
@@ -655,7 +683,7 @@ final class FaceView: TileView {
     init(frame: NSRect, face: Face) {
         self.face = face
         image = face.image
-        super.init(frame: frame, status: face.status)
+        super.init(frame: frame, status: face.status, waiting: face.waiting)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -690,7 +718,10 @@ final class TopicView: TileView {
     init(frame: NSRect, members: [Face]) {
         previews = members.prefix(4).map { ($0.image, $0.emoji) }
         let statuses = members.map(\.status)
-        super.init(frame: frame, status: statuses.contains("needs-me") ? "needs-me" : statuses.contains("working") ? "working" : "quiet")
+        let waiting = members.filter { $0.status != "snoozed" }.reduce(0) { $0 + $1.waiting }
+        super.init(
+            frame: frame, status: statuses.contains("needs-me") ? "needs-me" : statuses.contains("working") ? "working" : "quiet",
+            waiting: waiting)
     }
 
     required init?(coder: NSCoder) { nil }

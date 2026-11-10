@@ -18,6 +18,11 @@ done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/Roost.icns"
 
 cp "$BUILD/Roost" "$APP/Contents/MacOS/Roost"
+# The server runs from inside the app. Each rebuild is a new app to macOS, and a server that read this folder
+# directly would make macOS ask again for access to it when it is in Desktop or Documents.
+rm -rf "$APP/Contents/Resources/server"
+mkdir -p "$APP/Contents/Resources/server"
+cp -R "$ROOT/src" "$ROOT/package.json" "$APP/Contents/Resources/server/"
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -35,7 +40,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>NSAppleEventsUsageDescription</key><string>Roost brings the Terminal window of a session to the front.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>RoostNode</key><string>$NODE</string>
-  <key>RoostRoot</key><string>$ROOT</string>
+  <key>RoostRoot</key><string>$APP/Contents/Resources/server</string>
 </dict>
 </plist>
 EOF

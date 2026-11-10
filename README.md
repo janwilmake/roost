@@ -34,7 +34,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 
 When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Waiting for us` header of the notes, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
 

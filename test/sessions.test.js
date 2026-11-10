@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -104,6 +104,14 @@ test('the last AI title in a transcript wins, and a cut-off line is skipped', ()
   const text = '{"type":"ai-title","aiTitle":"Old"}\n{"type":"ai-title","aiTitle":"New \\"one\\""}\n{"type":"ai-title","aiTitle":"Cut';
   assert.equal(lastAiTitle(text), 'New "one"');
   assert.equal(lastAiTitle('nothing here'), null);
+});
+
+test('the badge counts the header, or else the items waiting for you', () => {
+  assert.equal(waitingForUs('Waiting for us: 2 · Waiting for them: 5\nAbout: x'), 2);
+  assert.equal(waitingForUs('Acme — Waiting for us: 1\nGlobex — Waiting for us: 3'), 4);
+  assert.equal(waitingForUs('About: x\nWaiting for you:\n- a\n- b\nWaiting for others:\n- c'), 2);
+  assert.equal(waitingForUs('About: nothing waits'), 0);
+  assert.equal(waitingForUs(null), 0);
 });
 
 test('new sessions go at the end, and ended sessions keep their place', () => {

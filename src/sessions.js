@@ -141,6 +141,24 @@ export function summarizeHistory(historyText) {
   };
 }
 
+/**
+ * The number in the badge: the sum of the "Waiting for us: N" header lines, or else the items
+ * in the "Waiting for you" list of the notes.
+ */
+export function waitingForUs(notes) {
+  if (!notes) return 0;
+  const headers = [...notes.matchAll(/Waiting for us:\s*(\d+)/gi)];
+  if (headers.length) return headers.reduce((sum, match) => sum + Number(match[1]), 0);
+  let inList = false;
+  let count = 0;
+  for (const line of notes.split('\n')) {
+    if (/^\s*Waiting for you:/i.test(line)) inList = true;
+    else if (/^\s*[-*•]\s+\S/.test(line)) count += inList ? 1 : 0;
+    else if (line.trim()) inList = false;
+  }
+  return count;
+}
+
 /** Finds the last title that Claude Code wrote into a transcript. */
 export function lastAiTitle(transcriptText) {
   let title = null;

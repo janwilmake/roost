@@ -14,6 +14,7 @@ import {
   lastAiTitle,
   readSessionFiles,
   summarizeHistory,
+  waitingForUs,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { focusTab, listProcesses, listTabs, openViewer, startClaude } from './terminal.js';
@@ -118,6 +119,7 @@ async function snapshot() {
         photo: saved.photo ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
+        waiting: waitingForUs(saved.notes),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         topic: topicIds.has(saved.topic) ? saved.topic : null,
