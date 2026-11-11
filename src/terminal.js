@@ -59,6 +59,12 @@ export async function listProcesses() {
   return stdout;
 }
 
+/** Returns the raw `ioreg` output that holds the time since the last keyboard or mouse input. */
+export async function readIdle() {
+  const { stdout } = await run('/usr/sbin/ioreg', ['-c', 'IOHIDSystem', '-d', '4', '-r', '-k', 'HIDIdleTime'], { timeout: 2000 });
+  return stdout;
+}
+
 export async function listTabs() {
   const { stdout } = await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', LIST_TABS], { timeout: 5000 });
   return stdout;

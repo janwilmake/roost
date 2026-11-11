@@ -188,3 +188,21 @@ export function applyNewOrder(order, requested, liveIds) {
 function squeeze(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
+
+/** Reads the time since the last keyboard or mouse input, in ms, from `ioreg -c IOHIDSystem`. */
+export function parseIdleTime(text) {
+  const match = /"HIDIdleTime" = (\d+)/.exec(text ?? '');
+  return match ? Number(match[1]) / 1e6 : null;
+}
+
+/**
+ * Adds one poll's time to a session's counters: `focusMs` while its tab is in front and someone uses the Mac,
+ * `workMs` while Claude works. Returns the new counters, or null when neither grew.
+ */
+export function addTime(saved, { step, watched, present, busy }) {
+  if (!(step > 0)) return null;
+  const patch = {};
+  if (watched && present) patch.focusMs = (saved.focusMs ?? 0) + step;
+  if (busy) patch.workMs = (saved.workMs ?? 0) + step;
+  return Object.keys(patch).length ? patch : null;
+}

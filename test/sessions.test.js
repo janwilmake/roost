@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -137,4 +137,13 @@ test('validatePatch keeps only known fields and rejects bad values', () => {
   assert.deepEqual(validatePatch({ photo: null, snoozeUntil: null }), { photo: null, snoozeUntil: null });
   assert.deepEqual(validatePatch({ notes: '  Waits for the client. ' }), { notes: 'Waits for the client.' });
   assert.throws(() => validatePatch({ notes: 'x'.repeat(3001) }));
+});
+
+test('time counts while the tab is in front and someone is there, and while Claude works', () => {
+  assert.deepEqual(addTime({}, { step: 2000, watched: true, present: true, busy: false }), { focusMs: 2000 });
+  assert.deepEqual(addTime({ focusMs: 5, workMs: 10 }, { step: 2000, watched: true, present: true, busy: true }), { focusMs: 2005, workMs: 2010 });
+  assert.equal(addTime({}, { step: 2000, watched: true, present: false, busy: false }), null);
+  assert.equal(addTime({}, { step: 0, watched: true, present: true, busy: true }), null);
+  assert.equal(parseIdleTime('  |   "HIDIdleTime" = 8626958000\n'), 8626.958);
+  assert.equal(parseIdleTime(''), null);
 });

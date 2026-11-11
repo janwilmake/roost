@@ -121,6 +121,8 @@ struct Face {
     let notes: String
     let notesAt: Double?
     let waiting: Int
+    let focusMs: Double
+    let workMs: Double
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -140,6 +142,8 @@ struct Face {
         notes = json["notes"] as? String ?? ""
         notesAt = json["notesAt"] as? Double
         waiting = json["waiting"] as? Int ?? 0
+        focusMs = json["focusMs"] as? Double ?? 0
+        workMs = json["workMs"] as? Double ?? 0
         topic = json["topic"] as? String
     }
 
@@ -154,7 +158,21 @@ struct Face {
         let status = status == "snoozed" ? statusText : [statusText, Face.duration(since).map { "for \($0)" }].compactMap { $0 }.joined(separator: " ")
         let opened = Face.duration(openedAt).map { "open \($0)" } ?? ""
         let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
-        return [status, folder, screenName ?? "", opened, noted].filter { !$0.isEmpty }.joined(separator: " · ")
+        return [status, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// "you 25m · Claude 1h 10m": the time this tab was in front while you used the Mac, and the time Claude worked.
+    static func timeSpent(focusMs: Double, workMs: Double) -> String {
+        [focusMs >= 60000 ? "you \(span(focusMs))" : "", workMs >= 60000 ? "Claude \(span(workMs))" : ""]
+            .filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private static func span(_ ms: Double) -> String {
+        let minutes = Int(ms / 60000)
+        if minutes < 60 { return "\(minutes)m" }
+        if minutes < 600 && minutes % 60 > 0 { return "\(minutes / 60)h \(minutes % 60)m" }
+        return "\(minutes / 60)h"
     }
 
     private var statusText: String {
@@ -230,6 +248,8 @@ func topicDetail(_ members: [Face], collapsed: Bool) -> String {
     var parts = ["\(members.count) session\(members.count == 1 ? "" : "s")"]
     if needing > 0 { parts.append("\(needing) need\(needing == 1 ? "s" : "") you") }
     if working > 0 { parts.append("\(working) working") }
+    let spent = Face.timeSpent(focusMs: members.reduce(0) { $0 + $1.focusMs }, workMs: members.reduce(0) { $0 + $1.workMs })
+    if !spent.isEmpty { parts.append(spent) }
     parts.append(collapsed ? "click to expand" : "click to collapse")
     return parts.joined(separator: " · ")
 }
@@ -1130,6 +1150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var topics: [Topic] = []
     private var signature = ""
     private var terminalFailed = false
+    private var latest: [String: Face] = [:]
     private var appliesNextPoll = false
     private var isCollapsing = false
     private var editor: TitleEditor?
@@ -1247,7 +1268,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rooster = RoosterView(frame: itemFrame)
         rooster.onClick = { [weak self, weak rooster] in
-            if let self, let rooster { self.overview.toggle(faces: self.faces, topics: self.topics, beside: self.screenRect(of: rooster)) }
+            if let self, let rooster { self.overview.toggle(faces: self.faces.map { self.latest[$0.id] ?? $0 }, topics: self.topics, beside: self.screenRect(of: rooster)) }
         }
         rooster.onMenu = { [weak self] event, view in self?.showRoosterMenu(event, view) }
         rooster.onMoved = { [weak self, weak panel] in
@@ -1265,12 +1286,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: face, event, view) }
                 let next = index + 1 < shown.count ? shown[index + 1].memberOf : nil
                 content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic,
-                            notes: face.notes) { face.detail }
+                            notes: face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
             case .topic(let topic, let members):
                 let view = TopicView(frame: itemFrame, members: members)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: topic, event, view) }
-                content.add(item: view, title: topic.name) { topicDetail(members, collapsed: topic.collapsed) }
+                content.add(item: view, title: topic.name) { [weak self] in
+                    topicDetail(members.map { self?.latest[$0.id] ?? $0 }, collapsed: topic.collapsed)
+                }
             }
         }
         let plus = PlusView(frame: itemFrame)
@@ -1603,6 +1626,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func show(faces: [Face], topics: [Topic], terminalFailed: Bool) {
         self.terminalFailed = terminalFailed
+        // The time counters change on every poll, so tooltips read them here instead of rebuilding the strip.
+        latest = Dictionary(faces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let next = currentSignature(faces: faces, topics: topics)
         // Background changes wait for the cursor to leave. The user's own action does not.
         let isBusy = StripItemView.isMovingStrip || strips.contains { ($0.contentView as? StripView)?.isBusy == true }

@@ -12,12 +12,14 @@ import {
   parseProcesses,
   parseTabs,
   lastAiTitle,
+  addTime,
+  parseIdleTime,
   readSessionFiles,
   summarizeHistory,
   waitingForUs,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
-import { focusTab, listProcesses, listTabs, openViewer, startClaude } from './terminal.js';
+import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
 
 const PORT = Number(process.env.ROOST_PORT ?? 4777);
 const HOME = process.env.ROOST_HOME ?? join(homedir(), '.roost');
@@ -31,6 +33,11 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const MAX_BODY = 1024 * 1024;
 const TABS_MAX_AGE_MS = 3000;
 const FLASH_WAIT_MS = 25_000;
+// Time counts between two polls, but a gap longer than this (sleep, the app closed) counts as this much.
+const TIME_STEP_MAX_MS = 10_000;
+// Without keyboard or mouse input for this long, a tab in front no longer counts as your time.
+const AWAY_AFTER_MS = 2 * 60_000;
+const TIME_SAVE_MS = 60_000;
 const flashWaiters = new Set();
 
 const store = await openStore(HOME);
@@ -39,6 +46,9 @@ let tabList = null;
 let tabListAt = 0;
 let tabListLoading = null;
 let knownTabs = new Map();
+let lastTickAt = 0;
+let timeSavedAt = Date.now();
+let timeUnsaved = false;
 
 function refreshTabs() {
   tabListLoading ??= listTabs()
@@ -71,9 +81,13 @@ async function loadLive(tabSource = currentTabs()) {
 }
 
 async function snapshot() {
-  const { live, terminalFront, terminalFailed } = await loadLive();
+  const [{ live, terminalFront, terminalFailed }, idleOutput] = await Promise.all([loadLive(), readIdle().catch(() => '')]);
   const now = Date.now();
   let changed = false;
+  const step = lastTickAt ? Math.min(now - lastTickAt, TIME_STEP_MAX_MS) : 0;
+  lastTickAt = now;
+  const idleMs = parseIdleTime(idleOutput);
+  const present = idleMs !== null && idleMs < AWAY_AFTER_MS;
 
   const merged = mergeOrder(store.state.order, live.map(({ file }) => file.sessionId));
   if (merged.length !== store.state.order.length) {
@@ -94,6 +108,12 @@ async function snapshot() {
         store.update(id, { lastSeenAt: now });
         saved = store.get(id);
         changed = true;
+      }
+      const time = addTime(saved, { step, watched: beingWatched, present, busy: file.status === 'busy' || file.status === 'shell' });
+      if (time) {
+        store.update(id, time);
+        saved = store.get(id);
+        timeUnsaved = true;
       }
       const tabTitle = tab && tab.title !== screenName && tab.title !== 'Terminal' ? tab.title : '';
       const title = saved.title || tabTitle || file.name || id.slice(0, 8);
@@ -122,14 +142,26 @@ async function snapshot() {
         waiting: waitingForUs(saved.notes),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
+        focusMs: Math.round(saved.focusMs ?? 0),
+        workMs: Math.round(saved.workMs ?? 0),
         topic: topicIds.has(saved.topic) ? saved.topic : null,
         screenName,
         openable: Boolean(tab || screenName),
       };
     });
 
-  if (changed) await store.save();
+  // The counters grow on every poll, so they reach the disk once a minute, and when the server stops.
+  if (timeUnsaved && now - timeSavedAt > TIME_SAVE_MS) changed = true;
+  if (changed) {
+    timeUnsaved = false;
+    timeSavedAt = now;
+    await store.save();
+  }
   return { sessions, topics: store.state.topics, terminalFailed };
+}
+
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  process.on(signal, () => store.save().finally(() => process.exit(0)));
 }
 
 // The app polls every two seconds; one `ps` and one `osascript` serve every screen.
