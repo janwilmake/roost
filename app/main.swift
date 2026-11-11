@@ -1,20 +1,32 @@
 import AppKit
 
 let serverURL = URL(string: "http://127.0.0.1:4777/")!
-/// The tiles grow to fill the screen's height, up to this size, so a short strip does not leave the screen empty.
-let largestTile: CGFloat = 64
 let smallestTile: CGFloat = 22
-/// The magnified tile and its reach grow with the tiles.
-var magnifiedSize: CGFloat { max(80, perchSize * 1.6) }
-var magnifyRadius: CGFloat { max(110, perchSize * 2.75) }
-/// Like the Dock, every tile shrinks when the strip has more tiles than the screen has room for.
-var perchSize = largestTile
-var stripGap: CGFloat { gap(for: perchSize) }
-var stripStep: CGFloat { perchSize + stripGap }
-var magnifiedScale: CGFloat { magnifiedSize / perchSize }
-var magnifiedWidth: CGFloat { magnifiedSize + 4 }
-var magnifyPadding: CGFloat { (magnifiedScale - 1) * magnifyRadius / 2 + 6 }
-func gap(for tile: CGFloat) -> CGFloat { (tile * 0.15).rounded() }
+/// A strip sizes its tiles as if it had at least this many, so a short strip does not get huge tiles.
+let minimumTileCount = 8
+
+/// The sizes of one strip. Each strip fills the height of its own screen, so a bigger screen gets bigger tiles.
+struct TileMetrics {
+    let size: CGFloat
+    var gap: CGFloat { (size * 0.15).rounded() }
+    var step: CGFloat { size + gap }
+    /// The magnified tile and its reach grow with the tiles.
+    var magnifiedSize: CGFloat { max(80, size * 1.6) }
+    var radius: CGFloat { max(110, size * 2.75) }
+    var scale: CGFloat { magnifiedSize / size }
+    var magnifiedWidth: CGFloat { magnifiedSize + 4 }
+    var padding: CGFloat { (scale - 1) * radius / 2 + 6 }
+
+    /// The largest tiles for which `count` tiles (at least `minimumTileCount`) fill `room`.
+    /// Like the Dock, more tiles than fit at the smallest size are cut off.
+    static func filling(_ room: CGFloat, count: Int) -> TileMetrics {
+        let tiles = CGFloat(max(count, minimumTileCount))
+        var size = floor(room / tiles)
+        while size > smallestTile && tiles * TileMetrics(size: size).step > room { size -= 1 }
+        return TileMetrics(size: max(size, smallestTile))
+    }
+}
+
 let draggedScale: CGFloat = 1.25
 let stripBottomMargin: CGFloat = 8
 
@@ -310,6 +322,7 @@ final class StripView: NSView {
         var revealTarget: CGFloat = 1
     }
 
+    var metrics = TileMetrics(size: 40)
     var onReorder: (_ from: Int, _ to: Int) -> Void = { _, _ in }
     private var items: [Item] = []
     private var isRevealing = false
@@ -397,10 +410,10 @@ final class StripView: NSView {
 
     private func begin() {
         guard let window, timer == nil else { return }
-        topPadding = magnifyPadding
+        topPadding = metrics.padding
         let rest = window.frame
         window.setFrame(
-            NSRect(x: rest.minX, y: rest.minY - magnifyPadding, width: magnifiedWidth, height: rest.height + 2 * magnifyPadding),
+            NSRect(x: rest.minX, y: rest.minY - metrics.padding, width: metrics.magnifiedWidth, height: rest.height + 2 * metrics.padding),
             display: false)
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer, forMode: .common)
@@ -423,7 +436,7 @@ final class StripView: NSView {
         }
 
         let restBottom = frame.minY + topPadding
-        let inside = mouse.x >= frame.minX - 2 && mouse.x <= frame.minX + magnifiedWidth
+        let inside = mouse.x >= frame.minX - 2 && mouse.x <= frame.minX + metrics.magnifiedWidth
             && mouse.y >= restBottom - 14 && mouse.y <= restTop + 14
 
         amount += ((inside ? 1 : 0) - amount) * 0.3
@@ -438,7 +451,7 @@ final class StripView: NSView {
 
     private func showTooltip() {
         guard let window, !items.isEmpty else { return }
-        let index = min(max(Int((cursor - perchSize / 2 + stripStep / 2) / stripStep), 0), items.count - 1)
+        let index = min(max(Int((cursor - metrics.size / 2 + metrics.step / 2) / metrics.step), 0), items.count - 1)
         let item = items[index]
         let detail = item.detail()
         let size = TooltipView.size(title: item.title, detail: detail, notes: item.notes)
@@ -467,14 +480,14 @@ final class StripView: NSView {
         amount = 0
         let grown = window.frame
         window.setFrame(
-            NSRect(x: grown.minX, y: grown.minY + topPadding, width: perchSize, height: grown.height - 2 * topPadding),
+            NSRect(x: grown.minX, y: grown.minY + topPadding, width: metrics.size, height: grown.height - 2 * topPadding),
             display: false)
         topPadding = 0
         tooltip?.orderOut(nil)
         placeItems()
     }
 
-    private func restCenter(_ slot: Int) -> CGFloat { perchSize / 2 + CGFloat(slot) * stripStep }
+    private func restCenter(_ slot: Int) -> CGFloat { metrics.size / 2 + CGFloat(slot) * metrics.step }
 
     private func setFrame(of view: NSView, center: CGFloat, size: CGFloat) {
         view.frame = NSRect(x: 0, y: bounds.height - topPadding - center - size / 2, width: size, height: size)
@@ -482,17 +495,17 @@ final class StripView: NSView {
 
     /// A fisheye along the strip: the point under the cursor stays still and the rest slides apart.
     private func placeItems() {
-        let strength = (magnifiedScale - 1) * amount
+        let strength = (metrics.scale - 1) * amount
         var filled: CGFloat = 0
         for (index, item) in items.enumerated() {
-            if index > 0 { filled += stripGap * item.reveal }
-            let rest = filled + perchSize * item.reveal / 2
-            filled += perchSize * item.reveal
+            if index > 0 { filled += metrics.gap * item.reveal }
+            let rest = filled + metrics.size * item.reveal / 2
+            filled += metrics.size * item.reveal
             let offset = cursor - rest
             let distance = abs(offset)
             let center = cursor - (offset < 0 ? -1 : 1) * stretched(distance, strength: strength)
-            let wave = distance < magnifyRadius ? pow(cos(.pi * distance / (2 * magnifyRadius)), 2) : 0
-            setFrame(of: item.view, center: center, size: perchSize * item.reveal * (1 + strength * wave))
+            let wave = distance < metrics.radius ? pow(cos(.pi * distance / (2 * metrics.radius)), 2) : 0
+            setFrame(of: item.view, center: center, size: metrics.size * item.reveal * (1 + strength * wave))
             item.view.isHidden = item.reveal < 0.02
         }
         placeStripes()
@@ -504,15 +517,15 @@ final class StripView: NSView {
             guard let stripe = item.stripe else { continue }
             stripe.isHidden = isRevealing || draggedIndex != nil
             let top = item.view.frame.minY
-            let bottom = index + 1 < items.count ? items[index + 1].view.frame.maxY : top - stripGap
+            let bottom = index + 1 < items.count ? items[index + 1].view.frame.maxY : top - metrics.gap
             stripe.frame = NSRect(x: 4, y: (top + bottom) / 2 - 1, width: max(item.view.frame.width - 8, 0), height: 2)
         }
     }
 
     /// The integral of the size curve, so items neither overlap nor drift apart.
     private func stretched(_ distance: CGFloat, strength: CGFloat) -> CGFloat {
-        guard distance < magnifyRadius else { return distance + strength * magnifyRadius / 2 }
-        return distance + strength * (distance / 2 + magnifyRadius / (2 * .pi) * sin(.pi * distance / magnifyRadius))
+        guard distance < metrics.radius else { return distance + strength * metrics.radius / 2 }
+        return distance + strength * (distance / 2 + metrics.radius / (2 * .pi) * sin(.pi * distance / metrics.radius))
     }
 
     func beginReorder(_ view: StripItemView) {
@@ -527,7 +540,7 @@ final class StripView: NSView {
     /// The dragged tile follows the cursor and the others open a gap at the drop slot.
     private func stepReorder(dragged: Int, cursor: CGFloat) {
         let last = items.lastIndex { $0.view.reorders } ?? items.count - 1
-        dropSlot = min(max(Int(((cursor - perchSize / 2) / stripStep).rounded()), 1), last)
+        dropSlot = min(max(Int(((cursor - metrics.size / 2) / metrics.step).rounded()), 1), last)
         amount = 0
         for (index, item) in items.enumerated() {
             let isDragged = index == dragged
@@ -537,7 +550,7 @@ final class StripView: NSView {
             let center = isDragged
                 ? min(max(cursor, restCenter(1)), restCenter(last))
                 : current + (restCenter(slot) - current) * 0.3
-            let target = isDragged ? perchSize * draggedScale : perchSize
+            let target = isDragged ? metrics.size * draggedScale : metrics.size
             setFrame(of: item.view, center: center, size: item.view.frame.width + (target - item.view.frame.width) * 0.3)
         }
     }
@@ -1366,10 +1379,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func layoutStrips(revealing sessionIds: Set<String> = []) {
         isCollapsing = false
         let screens = NSScreen.screens
-        fitTiles(on: screens)
         while strips.count > screens.count { strips.removeLast().close() }
         while strips.count < screens.count {
-            strips.append(makeOverlayPanel(frame: NSRect(x: 0, y: 0, width: perchSize, height: perchSize)))
+            strips.append(makeOverlayPanel(frame: NSRect(x: 0, y: 0, width: 40, height: 40)))
         }
         for (panel, screen) in zip(strips, screens) {
             layout(strip: panel, on: screen)
@@ -1401,27 +1413,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Picks the largest tile size at which the rooster, every entry and the plus tile fit on the smallest screen.
-    private func fitTiles(on screens: [NSScreen]) {
-        let room = (screens.map(\.visibleFrame.height).min() ?? 0) - perchOffset.y - stripBottomMargin
-        let tiles = CGFloat(entries(faces: faces, topics: topics).count + 2)
-        var size = largestTile
-        while size > smallestTile && tiles * (size + gap(for: size)) > room { size -= 1 }
-        perchSize = size
-    }
-
     /// The rooster sits on top, then one tile per topic and visible session, then the plus tile.
     private func layout(strip panel: NSPanel, on screen: NSScreen) {
         let visible = screen.visibleFrame
         let offset = perchOffset
-        let capacity = max(0, Int((visible.height - offset.y - stripBottomMargin - perchSize - stripGap) / stripStep) - 1)
-        let shown = Array(entries(faces: faces, topics: topics).prefix(capacity))
+        let room = visible.height - offset.y - stripBottomMargin
+        let all = entries(faces: faces, topics: topics)
+        // The rooster and the plus tile count too.
+        let tiles = TileMetrics.filling(room, count: all.count + 2)
+        let capacity = max(0, Int((room - tiles.size - tiles.gap) / tiles.step) - 1)
+        let shown = Array(all.prefix(capacity))
         // The extra gap leaves room for a stripe under a topic at the end of the sessions.
-        let height = perchSize + CGFloat(shown.count + 1) * stripStep + stripGap
-        panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: perchSize, height: height), display: false)
+        let height = tiles.size + CGFloat(shown.count + 1) * tiles.step + tiles.gap
+        panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: tiles.size, height: height), display: false)
 
-        let content = StripView(frame: NSRect(x: 0, y: 0, width: perchSize, height: height))
+        let content = StripView(frame: NSRect(x: 0, y: 0, width: tiles.size, height: height))
+        content.metrics = tiles
         content.onReorder = { [weak self] from, to in self?.reorder(from: from, to: to) }
-        let itemFrame = NSRect(x: 0, y: 0, width: perchSize, height: perchSize)
+        let itemFrame = NSRect(x: 0, y: 0, width: tiles.size, height: tiles.size)
 
         let rooster = RoosterView(frame: itemFrame)
         rooster.onClick = { [weak self, weak rooster] in
