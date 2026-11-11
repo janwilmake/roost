@@ -119,7 +119,7 @@ Pick the picture in this order:
 2. The thread is with an organization, not one person: use its logo.
 3. Neither: be creative. Use one emoji that fits the subject, or a fitting picture from elsewhere.
 
-Use any tool you have to find it: your own CRM or database (read-only), a LinkedIn or Slack profile, or the `apple-touch-icon.png` of the organization's website. Put a pointer to your own sources in `~/.claude/CLAUDE.md`. The picture stays on this Mac, in `~/.roost/state.json`.
+Use any tool you have to find it: your own CRM or database (read-only), a LinkedIn or Slack profile, or the `apple-touch-icon.png` of the organization's website. Put a pointer to your own sources in `~/.roost/rules.md`. The picture stays on this Mac, in `~/.roost/state.json`.
 
 A session finds its own id with `jq -r .sessionId ~/.claude/sessions/$PPID.json`. To find another session, list them all:
 
@@ -162,15 +162,11 @@ Do these steps in order. Tell the user what you did at the end. In the commands,
      "$f" > "$f.tmp" && mv "$f.tmp" "$f"
    ```
 
-6. **Tell every session about Roost.** Add this note to the end of `~/.claude/CLAUDE.md`. Create the file if it does not exist. Skip this step if the file already has a Roost note. Replace `$ROOST` with the real path:
+6. **Add the skill.** Run `mkdir -p ~/.claude/skills && ln -sfn "$ROOST/skills/roost" ~/.claude/skills/roost`. Every session sees the `roost` skill, which tells it to keep its notes, badge and picture current after each turn.
 
-   ```markdown
-   # Roost
+   Your own rules, for example where to find a contact's photo, go in `~/.roost/rules.md`. A repository can add its own rules in a section headed `Roost` in its `CLAUDE.md` or `AGENTS.md`. They replace your rules on the points they cover.
 
-   Roost is the strip of session icons at the left edge of the screen. It shows every running Claude Code session with a picture, a title and a status. When someone asks how Roost works, or asks to change this session's title, picture, notes, topic or place in the strip, read `$ROOST/README.md` and use its local API. This session's id: `jq -r .sessionId ~/.claude/sessions/$PPID.json`. Keep this session's Roost notes current, in the format the README gives.
-   ```
-
-7. **Open Roost.** Run `open ~/Applications/Roost.app`. Tell the user that macOS asks once for permission to control Terminal, and that Roost needs it. The hook and the note work in sessions that start after the install.
+7. **Open Roost.** Run `open ~/Applications/Roost.app`. Tell the user that macOS asks once for permission to control Terminal, and that Roost needs it. The hook and the skill work in sessions that start after the install.
 
 ## How it works
 
