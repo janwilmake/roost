@@ -9,6 +9,7 @@ import {
   isSameProcess,
   locate,
   mergeOrder,
+  moveIntoTopic,
   parseProcesses,
   parseTabs,
   lastAiTitle,
@@ -371,6 +372,10 @@ async function handleApi(req, url) {
   if ('notes' in patch) patch.notesAt = now;
   // New rules start fresh: an earlier Wake does not skip them.
   if ('snoozeRules' in patch) patch.awakeUntil = null;
+  if (patch.topic && store.get(id).topic !== patch.topic) {
+    const members = Object.entries(store.state.sessions).filter(([, saved]) => saved.topic === patch.topic).map(([other]) => other);
+    store.setOrder(moveIntoTopic(store.state.order, id, members));
+  }
   store.update(id, patch);
   await store.save();
   return { status: 200, body: await freshSnapshotAfterWrite() };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -164,4 +164,10 @@ test('repeating snoozes follow the local week, and end on the first hour they no
   assert.equal(deriveStatus({ rawStatus: 'waiting', snoozedByRule: true, now: NOW }), 'snoozed');
   assert.deepEqual(validatePatch({ snoozeRules: ['week', 'week'] }), { snoozeRules: ['week'] });
   assert.throws(() => validatePatch({ snoozeRules: ['always'] }));
+});
+
+test('a session that joins a topic moves to the end of that topic, and the topic keeps its place', () => {
+  assert.deepEqual(moveIntoTopic(['new', 'a', 't1', 't2', 'b'], 'new', ['t1', 't2']), ['a', 't1', 't2', 'new', 'b']);
+  assert.deepEqual(moveIntoTopic(['t1', 'a', 'new'], 'new', ['t1']), ['t1', 'new', 'a']);
+  assert.deepEqual(moveIntoTopic(['a', 'new'], 'new', []), ['a', 'new']);
 });

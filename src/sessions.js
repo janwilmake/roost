@@ -235,3 +235,13 @@ export function ruleSnoozeEnd(rules, date) {
   }
   return null;
 }
+
+/** Moves a session that joins a topic to just after the topic's last session, so the topic keeps its place. */
+export function moveIntoTopic(order, id, memberIds) {
+  const members = new Set(memberIds);
+  members.delete(id);
+  const rest = order.filter((other) => other !== id);
+  const last = rest.findLastIndex((other) => members.has(other));
+  if (last === -1) return order;
+  return [...rest.slice(0, last + 1), id, ...rest.slice(last + 1)];
+}
