@@ -36,7 +36,7 @@ When the tiles do not fit on the screen, they all shrink, the way the Dock does.
 
 A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
-The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked. The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
+The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
 The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
 

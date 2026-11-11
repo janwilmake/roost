@@ -109,7 +109,7 @@ async function snapshot() {
         saved = store.get(id);
         changed = true;
       }
-      const time = addTime(saved, { step, watched: beingWatched, present, busy: file.status === 'busy' || file.status === 'shell' });
+      const time = addTime(saved, { step, watched: beingWatched, present, busy: file.status === 'busy' });
       if (time) {
         store.update(id, time);
         saved = store.get(id);
