@@ -18,7 +18,12 @@ export async function readSessionFiles(dir) {
       }
     }),
   );
-  return files.filter((file) => file && Number.isInteger(file.pid) && typeof file.sessionId === 'string');
+  return files.filter(isShownSession);
+}
+
+/** A session that someone works in. A headless `claude -p` run (entrypoint `sdk-cli`) has no window to open, so the strip skips it. */
+export function isShownSession(file) {
+  return Boolean(file) && Number.isInteger(file.pid) && typeof file.sessionId === 'string' && file.entrypoint !== 'sdk-cli';
 }
 
 export function deriveStatus({ rawStatus, statusUpdatedAt = 0, snoozeUntil, snoozedByRule = false, lastSeenAt = 0, now }) {

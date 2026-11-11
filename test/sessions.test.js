@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -170,4 +170,11 @@ test('a session that joins a topic moves to the end of that topic, and the topic
   assert.deepEqual(moveIntoTopic(['new', 'a', 't1', 't2', 'b'], 'new', ['t1', 't2']), ['a', 't1', 't2', 'new', 'b']);
   assert.deepEqual(moveIntoTopic(['t1', 'a', 'new'], 'new', ['t1']), ['t1', 'new', 'a']);
   assert.deepEqual(moveIntoTopic(['a', 'new'], 'new', []), ['a', 'new']);
+});
+
+test('a headless claude -p run is not on the strip', () => {
+  assert.equal(isShownSession({ pid: 1, sessionId: 'a', entrypoint: 'cli' }), true);
+  assert.equal(isShownSession({ pid: 1, sessionId: 'a' }), true);
+  assert.equal(isShownSession({ pid: 1, sessionId: 'a', entrypoint: 'sdk-cli' }), false);
+  assert.equal(isShownSession(null), false);
 });
