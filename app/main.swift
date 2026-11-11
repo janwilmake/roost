@@ -168,7 +168,7 @@ struct Face {
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
-    private static func span(_ ms: Double) -> String {
+    static func span(_ ms: Double) -> String {
         let minutes = Int(ms / 60000)
         if minutes < 60 { return "\(minutes)m" }
         if minutes < 600 && minutes % 60 > 0 { return "\(minutes / 60)h \(minutes % 60)m" }
@@ -884,8 +884,136 @@ final class FlashView: NSView {
 
 // MARK: - Overview
 
+extension NSColor {
+    /// A color from "#rrggbb".
+    convenience init(hex: String) {
+        let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
+        self.init(srgbRed: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255, blue: CGFloat(value & 0xff) / 255, alpha: 1)
+    }
+}
+
 final class FlippedView: NSView {
     override var isFlipped: Bool { true }
+}
+
+/// One donut of the overview: how a total time splits over the sessions, with a legend that gives each time.
+final class TimeChartView: NSView {
+    struct Slice {
+        let label: String
+        let ms: Double
+        let color: NSColor
+    }
+
+    static let height: CGFloat = 158
+    private static let diameter: CGFloat = 104
+    private static let rowHeight: CGFloat = 17
+    private let title: String
+    private let slices: [Slice]
+
+    init(frame: NSRect, title: String, slices: [Slice]) {
+        self.title = title
+        self.slices = slices
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var isFlipped: Bool { true }
+
+    /// The categorical palette, in fixed order: light and dark steps of blue, orange, aqua, yellow, magenta, green, violet.
+    static let colors: [NSColor] = [
+        ("#2a78d6", "#3987e5"), ("#eb6834", "#d95926"), ("#1baf7a", "#199e70"), ("#eda100", "#c98500"),
+        ("#e87ba4", "#d55181"), ("#008300", "#008300"), ("#6250d6", "#9085e9"),
+    ].map { light, dark in
+        NSColor(name: nil) { appearance in
+            NSColor(hex: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
+        }
+    }
+    static let other = NSColor(hex: "#898781")
+
+    /// Picks up to seven sessions with the most time in either chart. Each keeps its color in both charts,
+    /// in strip order, and the rest goes into "Other".
+    static func charts(for faces: [Face]) -> (you: [Slice], claude: [Slice]) {
+        let named = faces.filter { $0.focusMs + $0.workMs >= 60000 }
+            .sorted { $0.focusMs + $0.workMs > $1.focusMs + $1.workMs }.prefix(colors.count).map(\.id)
+        let chosen = faces.filter { named.contains($0.id) }
+        func slices(_ time: (Face) -> Double) -> [Slice] {
+            var result: [Slice] = []
+            var rest = 0.0
+            for face in faces {
+                if let index = chosen.firstIndex(where: { $0.id == face.id }), time(face) >= 60000 {
+                    // "Ernst Jan (Search X) · 15 seats" shows as "Ernst Jan (Search X)".
+                    let label = face.title.components(separatedBy: " · ").first ?? face.title
+                    result.append(Slice(label: label, ms: time(face), color: colors[index]))
+                } else {
+                    rest += time(face)
+                }
+            }
+            if rest >= 60000 { result.append(Slice(label: "Other", ms: rest, color: other)) }
+            return result
+        }
+        return (slices(\.focusMs), slices(\.workMs))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let total = slices.reduce(0) { $0 + $1.ms }
+        let heading = total > 0 ? "\(title) · \(Face.span(total))" : title
+        (heading as NSString).draw(at: .zero, withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor])
+
+        let ring = NSRect(x: 0, y: 26, width: Self.diameter, height: Self.diameter)
+        let center = NSPoint(x: ring.midX, y: ring.midY)
+        let outer = Self.diameter / 2
+        let inner = outer * 0.58
+        guard total > 0 else {
+            let track = NSBezierPath(ovalIn: ring.insetBy(dx: (outer - inner) / 2, dy: (outer - inner) / 2))
+            track.lineWidth = outer - inner
+            NSColor.separatorColor.setStroke()
+            track.stroke()
+            ("No time counted yet" as NSString).draw(
+                at: NSPoint(x: ring.maxX + 16, y: ring.midY - 8),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
+            return
+        }
+
+        // In a flipped view the angles run clockwise; -90° is the top.
+        var start: CGFloat = -90
+        for slice in slices {
+            let end = start + 360 * CGFloat(slice.ms / total)
+            let path = NSBezierPath()
+            path.appendArc(withCenter: center, radius: outer, startAngle: start, endAngle: end, clockwise: false)
+            path.appendArc(withCenter: center, radius: inner, startAngle: end, endAngle: start, clockwise: true)
+            path.close()
+            slice.color.setFill()
+            path.fill()
+            if slices.count > 1 {
+                // A 2px gap in the window color between slices.
+                NSColor.windowBackgroundColor.setStroke()
+                path.lineWidth = 2
+                path.stroke()
+            }
+            start = end
+        }
+
+        let legendX = ring.maxX + 18
+        let legendWidth = bounds.width - legendX
+        let truncating = NSMutableParagraphStyle()
+        truncating.lineBreakMode = .byTruncatingTail
+        let labelAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.labelColor, .paragraphStyle: truncating]
+        let timeAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor]
+        let rows = slices.count
+        var y = ring.midY - CGFloat(rows) * Self.rowHeight / 2
+        for slice in slices {
+            slice.color.setFill()
+            NSBezierPath(roundedRect: NSRect(x: legendX, y: y + 4, width: 9, height: 9), xRadius: 2, yRadius: 2).fill()
+            let time = Face.span(slice.ms) as NSString
+            let timeWidth = ceil(time.size(withAttributes: timeAttributes).width)
+            time.draw(at: NSPoint(x: bounds.width - timeWidth, y: y), withAttributes: timeAttributes)
+            (slice.label as NSString).draw(
+                in: NSRect(x: legendX + 15, y: y, width: max(0, legendWidth - 15 - timeWidth - 8), height: Self.rowHeight),
+                withAttributes: labelAttributes)
+            y += Self.rowHeight
+        }
+    }
 }
 
 /// Closes on Escape, like a sheet.
@@ -1020,6 +1148,16 @@ final class Overview: NSObject, NSWindowDelegate {
         let width = scroll.contentSize.width
         let document = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 0))
         var y: CGFloat = 6
+        if !faces.isEmpty {
+            let (you, claude) = TimeChartView.charts(for: faces)
+            let gap: CGFloat = 24
+            let chartWidth = (width - 2 * OverviewRow.inset - gap) / 2
+            for (index, (title, slices)) in [("Your time", you), ("Claude's time", claude)].enumerated() {
+                let frame = NSRect(x: OverviewRow.inset + CGFloat(index) * (chartWidth + gap), y: y + 10, width: chartWidth, height: TimeChartView.height)
+                document.addSubview(TimeChartView(frame: frame, title: title, slices: slices))
+            }
+            y += TimeChartView.height + 14
+        }
         let expanded = topics.map { topic -> Topic in
             var open = topic
             open.collapsed = false
