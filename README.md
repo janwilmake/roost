@@ -100,6 +100,25 @@ jq -n --arg notes "$NOTES" '{notes: $notes}' |
 
 The value is plain text of at most 3,000 characters. Send `null` to remove the notes.
 
+## For AI agents: snooze a session
+
+A snoozed session is dimmed and has no badge. Snooze only when the user asks for it.
+
+- `{"snoozeUntil": <ms since 1970>}` snoozes once, until that moment. `null` ends it.
+- `{"snoozeRules": [...]}` sets the repeating snoozes, in the Mac's local time: `week` (Monday to Friday), `workday` (Monday to Friday, 9:00 to 18:00) and `weekend` (Saturday and Sunday). `[]` removes them. The list replaces the one before.
+- `POST /api/sessions/<id>/wake` ends a one-time snooze and skips the repeating snooze that holds now.
+
+```bash
+id=$(jq -r .sessionId ~/.claude/sessions/$PPID.json)
+# Until Saturday 9:00, three days from now (macOS date):
+until=$(( $(date -v+3d -v9H -v0M -v0S +%s) * 1000 ))
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
+  -d "{\"snoozeUntil\": $until}" "http://127.0.0.1:4777/api/sessions/$id"
+# Snoozed during work hours, every week:
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
+  -d '{"snoozeRules": ["workday"]}' "http://127.0.0.1:4777/api/sessions/$id"
+```
+
 ## For AI agents: message another session
 
 Claude Code's `SendMessage` tool reaches another local session by the name that `ListAgents` shows. Roost gives that name as `agentName`, next to the title, topic and notes. So one request finds the sessions to message, for example every session in a topic:

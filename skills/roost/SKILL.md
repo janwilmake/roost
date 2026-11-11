@@ -73,3 +73,7 @@ Pick the picture in this order:
 Find it with the tools you have, and with the sources the rules above name. The commands to send a photo, an emoji or a title are in the Roost README (`../../README.md` from the folder of this skill), section "For AI agents: set a session's picture". Crop a photo to a square of 256 pixels first.
 
 Set a title of a few words when the automatic one does not say what the session is for. Send `{"title": "..."}` to the same endpoint.
+
+## Snooze
+
+When the user asks to snooze this session, or another one, send `snoozeUntil` (milliseconds since 1970) for a one-time snooze, or `snoozeRules` (`week`, `workday`, `weekend`) for a repeating one, to the same endpoint. `POST .../wake` wakes it. The commands are in the Roost README, section "For AI agents: snooze a session". Do not snooze a session on your own.
