@@ -32,7 +32,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Drag the rooster          | The strip moves on every screen. Right-click it to quit.                      |
 | Click the + tile          | Start a session in a frequent folder or a new one, or resume a recent one.    |
 
-When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
+The tiles fill the height of the screen, up to 64 points each. When they do not fit, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
 
 A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. Snooze offers one-time snoozes (1 hour up to 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 

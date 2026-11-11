@@ -1,10 +1,12 @@
 import AppKit
 
 let serverURL = URL(string: "http://127.0.0.1:4777/")!
-let largestTile: CGFloat = 40
+/// The tiles grow to fill the screen's height, up to this size, so a short strip does not leave the screen empty.
+let largestTile: CGFloat = 64
 let smallestTile: CGFloat = 22
-let magnifiedSize: CGFloat = 80
-let magnifyRadius: CGFloat = 110
+/// The magnified tile and its reach grow with the tiles.
+var magnifiedSize: CGFloat { max(80, perchSize * 1.6) }
+var magnifyRadius: CGFloat { max(110, perchSize * 2.75) }
 /// Like the Dock, every tile shrinks when the strip has more tiles than the screen has room for.
 var perchSize = largestTile
 var stripGap: CGFloat { gap(for: perchSize) }
