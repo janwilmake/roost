@@ -30,11 +30,11 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
 | Click the rooster         | The overview opens: every session with its title, status and notes.          |
 | Drag the rooster          | The strip moves on every screen. Right-click it to quit.                      |
-| Click the + tile          | Start a session in a frequent folder or a new one, or resume a recent one.    |
+| Click the + tile          | Start a session in a frequent folder or a new one, resume a recent one, or wake a snoozed one. |
 
 Each strip fills the height of its screen: its tiles share that height, counted as at least eight tiles, so a bigger screen gets bigger tiles. When the tiles would get smaller than 22 points, the strip shows what fits, the way the Dock does. The tile under the cursor still grows.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
@@ -48,7 +48,7 @@ A session joins a topic when you drop it directly under the topic tile, or betwe
 | Working  | Claude itself is busy.                                                   |
 | Shell    | Claude only waits on a long-running shell command. It has no indicator.  |
 | Quiet    | Claude is idle and you saw the result.                                   |
-| Snoozed  | Hidden from the count until the time you chose, or during the hours of a repeating snooze. |
+| Snoozed  | Off the strip until the time you chose, or during the hours of a repeating snooze. Find it under + → Snoozed. |
 
 ## For AI agents: make a topic
 
@@ -102,7 +102,7 @@ The value is plain text of at most 3,000 characters. Send `null` to remove the n
 
 ## For AI agents: snooze a session
 
-A snoozed session is dimmed and has no badge. Snooze only when the user asks for it.
+A snoozed session leaves the strip until it wakes. Snooze only when the user asks for it.
 
 - `{"snoozeUntil": <ms since 1970>}` snoozes once, until that moment. `null` ends it.
 - `{"snoozeRules": [...]}` sets the repeating snoozes, in the Mac's local time: `week` (Monday to Friday), `workday` (Monday to Friday, 9:00 to 18:00) and `weekend` (Saturday and Sunday). `[]` removes them. The list replaces the one before.

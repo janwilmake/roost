@@ -204,6 +204,15 @@ struct Face {
         return parts.isEmpty ? nil : parts.joined(separator: ", ")
     }
 
+    /// "until Sat 09:00", or the repeating snooze when it has no end.
+    var snoozeNote: String {
+        guard let snoozeUntil else { return Face.rulesText(snoozeRules) ?? "" }
+        let until = Date(timeIntervalSince1970: snoozeUntil / 1000)
+        let formatter = DateFormatter()
+        formatter.dateFormat = until.timeIntervalSinceNow > 6 * 86400 ? "EEE d MMM HH:mm" : "EEE HH:mm"
+        return "until \(formatter.string(from: until))"
+    }
+
     private var statusText: String {
         switch status {
         case "needs-me": return waitingFor.map { "Needs me · \($0)" } ?? "Needs me"
@@ -1418,7 +1427,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let visible = screen.visibleFrame
         let offset = perchOffset
         let room = visible.height - offset.y - stripBottomMargin
-        let all = entries(faces: faces, topics: topics)
+        let all = entries(faces: shownFaces, topics: topics)
         // The rooster and the plus tile count too.
         let tiles = TileMetrics.filling(room, count: all.count + 2)
         let capacity = max(0, Int((room - tiles.size - tiles.gap) / tiles.step) - 1)
@@ -1479,7 +1488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let snoozed = faces.filter { $0.status == "snoozed" }.count
         var parts = [needing == 0 ? "Nobody needs you" : "\(needing) need\(needing == 1 ? "s" : "") you"]
         if working > 0 { parts.append("\(working) working") }
-        if snoozed > 0 { parts.append("\(snoozed) snoozed") }
+        if snoozed > 0 { parts.append("\(snoozed) snoozed (under +)") }
         return parts.joined(separator: " · ")
     }
 
@@ -1491,8 +1500,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Applies a drop locally at once, then saves the order and any change of topic.
+    /// A snoozed session leaves the strip. The Snoozed menu under the plus tile lists it.
+    private var shownFaces: [Face] { faces.filter { $0.status != "snoozed" } }
+
     private func reorder(from: Int, to: Int) {
-        var list = entries(faces: faces, topics: topics)
+        var list = entries(faces: shownFaces, topics: topics)
         guard from != to, list.indices.contains(from), list.indices.contains(to) else {
             layoutStrips()
             return
@@ -1511,6 +1523,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .face(let face):
                 if face.topic == nil || face.topic != movedTopic { ids.append(face.id) }
             }
+        }
+
+        // Each snoozed session keeps its place: right after the session it followed.
+        for (index, face) in faces.enumerated() where face.status == "snoozed" {
+            let at = faces[..<index].last { ids.contains($0.id) }.flatMap { ids.firstIndex(of: $0.id) }.map { $0 + 1 } ?? 0
+            ids.insert(face.id, at: at)
         }
 
         let byId = Dictionary(uniqueKeysWithValues: faces.map { ($0.id, $0) })
@@ -1601,6 +1619,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 submenu.addItem(menuItem(short, note: Self.when(session.at)) { [weak self] in
                     self?.post("api/resume", ["id": session.id])
                 })
+            }
+            item.submenu = submenu
+            menu.addItem(item)
+        }
+        let snoozed = faces.filter { $0.status == "snoozed" }
+        if !snoozed.isEmpty {
+            let item = NSMenuItem(title: "Snoozed", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            for face in snoozed {
+                let short = face.title.count > 60 ? String(face.title.prefix(59)) + "…" : face.title
+                let entry = menuItem(short, note: face.snoozeNote) {}
+                let actions = NSMenu()
+                actions.addItem(ActionItem("Wake") { [weak self] in self?.post("api/sessions/\(face.id)/wake") })
+                actions.addItem(ActionItem("Open") { [weak self] in self?.post("api/sessions/\(face.id)/open") })
+                entry.submenu = actions
+                submenu.addItem(entry)
             }
             item.submenu = submenu
             menu.addItem(item)
