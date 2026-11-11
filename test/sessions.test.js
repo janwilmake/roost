@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -148,4 +148,20 @@ test('time counts while the tab is in front and someone is there, and while Clau
   assert.equal(addTime({}, { step: 0, watched: true, present: true, busy: true }), null);
   assert.equal(parseIdleTime('  |   "HIDIdleTime" = 8626958000\n'), 8626.958);
   assert.equal(parseIdleTime(''), null);
+});
+
+test('repeating snoozes follow the local week, and end on the first hour they no longer hold', () => {
+  const wednesday10 = new Date(2026, 10, 11, 10, 30);
+  const wednesday20 = new Date(2026, 10, 11, 20, 0);
+  const saturday = new Date(2026, 10, 14, 12, 0);
+  assert.equal(ruleSnoozes(['workday'], wednesday10), true);
+  assert.equal(ruleSnoozes(['workday'], wednesday20), false);
+  assert.equal(ruleSnoozes(['week'], saturday), false);
+  assert.equal(ruleSnoozes(['weekend'], saturday), true);
+  assert.equal(ruleSnoozeEnd(['workday'], wednesday10), new Date(2026, 10, 11, 18, 0).getTime());
+  assert.equal(ruleSnoozeEnd(['weekend'], saturday), new Date(2026, 10, 16, 0, 0).getTime());
+  assert.equal(ruleSnoozeEnd(['week', 'weekend'], saturday), null);
+  assert.equal(deriveStatus({ rawStatus: 'waiting', snoozedByRule: true, now: NOW }), 'snoozed');
+  assert.deepEqual(validatePatch({ snoozeRules: ['week', 'week'] }), { snoozeRules: ['week'] });
+  assert.throws(() => validatePatch({ snoozeRules: ['always'] }));
 });

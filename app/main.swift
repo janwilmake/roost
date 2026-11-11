@@ -118,6 +118,7 @@ struct Face {
     let since: Double?
     let openedAt: Double?
     let snoozeUntil: Double?
+    let snoozeRules: [String]
     let notes: String
     let notesAt: Double?
     let waiting: Int
@@ -139,6 +140,7 @@ struct Face {
         since = json["since"] as? Double
         openedAt = json["openedAt"] as? Double
         snoozeUntil = json["snoozeUntil"] as? Double
+        snoozeRules = json["snoozeRules"] as? [String] ?? []
         notes = json["notes"] as? String ?? ""
         notesAt = json["notesAt"] as? Double
         waiting = json["waiting"] as? Int ?? 0
@@ -158,7 +160,8 @@ struct Face {
         let status = status == "snoozed" ? statusText : [statusText, Face.duration(since).map { "for \($0)" }].compactMap { $0 }.joined(separator: " ")
         let opened = Face.duration(openedAt).map { "open \($0)" } ?? ""
         let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
-        return [status, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
+        let repeats = Face.rulesText(snoozeRules).map { "snoozes \($0)" } ?? ""
+        return [status, repeats, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
@@ -175,6 +178,18 @@ struct Face {
         return "\(minutes / 60)h"
     }
 
+    static let snoozeRuleTitles: [(rule: String, title: String, short: String)] = [
+        ("week", "During the Week (Mon–Fri)", "Mon–Fri"),
+        ("workday", "During Work Hours (Mon–Fri 9–18)", "Mon–Fri 9–18"),
+        ("weekend", "During the Weekend", "on weekends"),
+    ]
+
+    /// "Mon–Fri, on weekends", or nil without repeating snoozes.
+    static func rulesText(_ rules: [String]) -> String? {
+        let parts = snoozeRuleTitles.filter { rules.contains($0.rule) }.map(\.short)
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     private var statusText: String {
         switch status {
         case "needs-me": return waitingFor.map { "Needs me · \($0)" } ?? "Needs me"
@@ -183,8 +198,10 @@ struct Face {
         case "snoozed":
             guard let snoozeUntil else { return "Snoozed" }
             let formatter = DateFormatter()
-            formatter.dateFormat = "EEE HH:mm"
-            return "Snoozed until \(formatter.string(from: Date(timeIntervalSince1970: snoozeUntil / 1000)))"
+            let until = Date(timeIntervalSince1970: snoozeUntil / 1000)
+            // A snooze of a week or longer also names the date.
+            formatter.dateFormat = until.timeIntervalSinceNow > 6 * 86400 ? "EEE d MMM HH:mm" : "EEE HH:mm"
+            return "Snoozed until \(formatter.string(from: until))"
         default: return "Quiet"
         }
     }
@@ -1630,16 +1647,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(ActionItem("Mark as Seen") { [weak self] in self?.post("\(path)/seen") })
         }
         if face.status == "snoozed" {
-            menu.addItem(ActionItem("Wake") { [weak self] in self?.post(path, ["snoozeUntil": NSNull()]) })
-        } else {
-            let snooze = NSMenuItem(title: "Snooze", action: nil, keyEquivalent: "")
-            let choices = NSMenu()
-            for (title, until) in Self.snoozeChoices() {
-                choices.addItem(ActionItem(title) { [weak self] in self?.post(path, ["snoozeUntil": until]) })
-            }
-            snooze.submenu = choices
-            menu.addItem(snooze)
+            menu.addItem(ActionItem("Wake") { [weak self] in self?.post("\(path)/wake") })
         }
+        let snooze = NSMenuItem(title: "Snooze", action: nil, keyEquivalent: "")
+        let choices = NSMenu()
+        for (title, until) in Self.snoozeChoices() {
+            choices.addItem(ActionItem(title) { [weak self] in self?.post(path, ["snoozeUntil": until]) })
+        }
+        choices.addItem(.separator())
+        let header = NSMenuItem(title: "Every Week", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        choices.addItem(header)
+        for (rule, title, _) in Face.snoozeRuleTitles {
+            let isOn = face.snoozeRules.contains(rule)
+            let toggle = ActionItem(title) { [weak self] in
+                let rules = isOn ? face.snoozeRules.filter { $0 != rule } : face.snoozeRules + [rule]
+                self?.post(path, ["snoozeRules": rules])
+            }
+            toggle.state = isOn ? .on : .off
+            choices.addItem(toggle)
+        }
+        snooze.submenu = choices
+        menu.addItem(snooze)
 
         let move = NSMenuItem(title: "Move to Topic", action: nil, keyEquivalent: "")
         let destinations = NSMenu()
@@ -1690,10 +1719,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let now = Date()
         var tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: now) ?? now
         tomorrow = Calendar.current.date(bySettingHour: 9, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+        let calendar = Calendar.current
+        // Weekday 7 is Saturday and 2 is Monday. On a weekend, the next choice is Monday instead.
+        let isWeekend = calendar.isDateInWeekend(now)
+        let next = calendar.nextDate(after: now, matching: DateComponents(hour: 9, minute: 0, weekday: isWeekend ? 2 : 7), matchingPolicy: .nextTime) ?? now
+        func later(_ component: Calendar.Component, _ value: Int) -> Double {
+            (calendar.date(byAdding: component, value: value, to: now) ?? now).timeIntervalSince1970 * 1000
+        }
         return [
             ("1 Hour", (now.timeIntervalSince1970 + 3600) * 1000),
             ("3 Hours", (now.timeIntervalSince1970 + 3 * 3600) * 1000),
             ("Tomorrow 9:00", tomorrow.timeIntervalSince1970 * 1000),
+            (isWeekend ? "Until Monday 9:00" : "Until the Weekend (Sat 9:00)", next.timeIntervalSince1970 * 1000),
+            ("For 1 Week", later(.day, 7)),
+            ("For 2 Weeks", later(.day, 14)),
+            ("For 1 Month", later(.month, 1)),
         ]
     }
 

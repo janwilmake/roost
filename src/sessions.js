@@ -21,8 +21,8 @@ export async function readSessionFiles(dir) {
   return files.filter((file) => file && Number.isInteger(file.pid) && typeof file.sessionId === 'string');
 }
 
-export function deriveStatus({ rawStatus, statusUpdatedAt = 0, snoozeUntil, lastSeenAt = 0, now }) {
-  if (snoozeUntil && snoozeUntil > now) return 'snoozed';
+export function deriveStatus({ rawStatus, statusUpdatedAt = 0, snoozeUntil, snoozedByRule = false, lastSeenAt = 0, now }) {
+  if ((snoozeUntil && snoozeUntil > now) || snoozedByRule) return 'snoozed';
   if (rawStatus === 'busy') return 'working';
   if (rawStatus === 'shell') return 'shell';
   if (rawStatus === 'idle') return statusUpdatedAt > lastSeenAt ? 'needs-me' : 'quiet';
@@ -207,4 +207,31 @@ export function addTime(saved, { step, watched, present, busy }) {
   if (watched && present) patch.focusMs = (saved.focusMs ?? 0) + step;
   if (busy) patch.workMs = (saved.workMs ?? 0) + step;
   return Object.keys(patch).length ? patch : null;
+}
+
+/**
+ * Repeating snoozes, in the Mac's local time: `week` is Monday to Friday, `workday` is Monday to Friday
+ * from 9:00 to 18:00, and `weekend` is Saturday and Sunday.
+ */
+export const SNOOZE_RULES = ['week', 'workday', 'weekend'];
+
+export function ruleSnoozes(rules, date) {
+  const day = date.getDay();
+  const hour = date.getHours();
+  const weekday = day >= 1 && day <= 5;
+  return (rules ?? []).some((rule) =>
+    (rule === 'week' && weekday) || (rule === 'workday' && weekday && hour >= 9 && hour < 18) || (rule === 'weekend' && !weekday));
+}
+
+/** When the repeating snooze that holds now ends, or null when the rules never end (every day). */
+export function ruleSnoozeEnd(rules, date) {
+  if (!ruleSnoozes(rules, date)) return null;
+  // Every rule starts and ends on a full hour.
+  const next = new Date(date);
+  next.setMinutes(0, 0, 0);
+  for (let hours = 1; hours <= 8 * 24; hours += 1) {
+    next.setHours(next.getHours() + 1);
+    if (!ruleSnoozes(rules, next)) return next.getTime();
+  }
+  return null;
 }

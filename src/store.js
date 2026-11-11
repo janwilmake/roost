@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { SNOOZE_RULES } from './sessions.js';
 
 const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64 };
 
@@ -90,6 +91,11 @@ export function validatePatch(body) {
   if ('topic' in body) {
     if (body.topic !== null && (typeof body.topic !== 'string' || body.topic.length > LIMITS.topicId)) throw new Error('Bad topic');
     patch.topic = body.topic;
+  }
+  if ('snoozeRules' in body) {
+    const valid = Array.isArray(body.snoozeRules) && body.snoozeRules.every((rule) => SNOOZE_RULES.includes(rule));
+    if (!valid) throw new Error('Bad snoozeRules');
+    patch.snoozeRules = [...new Set(body.snoozeRules)];
   }
   if ('snoozeUntil' in body) {
     if (body.snoozeUntil !== null && !Number.isFinite(body.snoozeUntil)) throw new Error('Bad snoozeUntil');

@@ -34,7 +34,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 
 When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. Snooze offers one-time snoozes (1 hour up to 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
@@ -48,7 +48,7 @@ A session joins a topic when you drop it directly under the topic tile, or betwe
 | Working  | Claude itself is busy.                                                   |
 | Shell    | Claude only waits on a long-running shell command. It has no indicator.  |
 | Quiet    | Claude is idle and you saw the result.                                   |
-| Snoozed  | Hidden from the count until the time you chose.                          |
+| Snoozed  | Hidden from the count until the time you chose, or during the hours of a repeating snooze. |
 
 ## For AI agents: make a topic
 
@@ -172,7 +172,7 @@ Do these steps in order. Tell the user what you did at the end. In the commands,
 
 - `src/server.js` listens on `127.0.0.1:4777` only. It refuses other hosts and origins.
 - It reads `~/.claude/sessions/<pid>.json`, `ps`, and the Terminal tab list through AppleScript. It never opens the `.key` files in that folder.
-- Pictures, titles, order and snooze times are in `~/.roost/state.json`, keyed by session id. A resumed session keeps them.
+- Pictures, titles, order, snooze times and repeating snoozes are in `~/.roost/state.json`, keyed by session id. A resumed session keeps them.
 - `app/main.swift` is the native app. It starts the server if needed, draws the strip and the logo, and reads the sessions from the server.
 
 The session files are an undocumented part of Claude Code. If the list goes empty after an update, look there first.

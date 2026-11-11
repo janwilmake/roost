@@ -15,6 +15,8 @@ import {
   addTime,
   parseIdleTime,
   readSessionFiles,
+  ruleSnoozeEnd,
+  ruleSnoozes,
   summarizeHistory,
   waitingForUs,
 } from './sessions.js';
@@ -102,6 +104,8 @@ async function snapshot() {
     .map(({ file, tab, screenName }) => {
       const id = file.sessionId;
       let saved = store.get(id);
+      // A woken session ignores its repeating snooze until that snooze would have ended.
+      const snoozedByRule = !(saved.awakeUntil > now) && ruleSnoozes(saved.snoozeRules, new Date(now));
       const facts = { rawStatus: file.status, statusUpdatedAt: file.statusUpdatedAt, now };
       const beingWatched = terminalFront && tab?.selected && tab.windowFront;
       if (beingWatched && file.status === 'idle' && deriveStatus({ ...facts, lastSeenAt: saved.lastSeenAt }) === 'needs-me') {
@@ -129,12 +133,14 @@ async function snapshot() {
         title,
         autoTitle: tabTitle || file.name || '',
         folder: basename(file.cwd ?? ''),
-        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, lastSeenAt: saved.lastSeenAt }),
+        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, snoozedByRule, lastSeenAt: saved.lastSeenAt }),
         rawStatus: file.status,
         waitingFor: typeof file.waitingFor === 'string' ? file.waitingFor : null,
         since: file.statusUpdatedAt ?? null,
         openedAt: file.startedAt ?? null,
-        snoozeUntil: saved.snoozeUntil ?? null,
+        // When the snooze ends: the one-time snooze, or else the repeating one.
+        snoozeUntil: saved.snoozeUntil > now ? saved.snoozeUntil : snoozedByRule ? ruleSnoozeEnd(saved.snoozeRules, new Date(now)) : null,
+        snoozeRules: saved.snoozeRules ?? [],
         emoji: saved.emoji || defaultAvatar(id),
         photo: saved.photo ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
@@ -348,15 +354,23 @@ async function handleApi(req, url) {
     return { status: 200, body: await freshSnapshotAfterWrite() };
   }
 
-  const route = /^\/api\/sessions\/([\w-]+)(?:\/(open|seen))?$/.exec(url.pathname);
+  const route = /^\/api\/sessions\/([\w-]+)(?:\/(open|seen|wake))?$/.exec(url.pathname);
   if (!route) return { status: 404, body: { error: 'Not found' } };
   const [, id, action] = route;
   if (action === 'open') {
     const bounds = await focusKnownTab(id);
     return bounds ? markOpened(id, bounds) : openSession(id);
   }
-  const patch = action === 'seen' ? { lastSeenAt: Date.now() } : validatePatch(body);
-  if ('notes' in patch) patch.notesAt = Date.now();
+  const now = Date.now();
+  const actions = {
+    seen: () => ({ lastSeenAt: now }),
+    // Ends a one-time snooze, and skips the repeating snooze that holds now.
+    wake: () => ({ snoozeUntil: null, awakeUntil: ruleSnoozeEnd(store.get(id).snoozeRules, new Date(now)) }),
+  };
+  const patch = actions[action]?.() ?? validatePatch(body);
+  if ('notes' in patch) patch.notesAt = now;
+  // New rules start fresh: an earlier Wake does not skip them.
+  if ('snoozeRules' in patch) patch.awakeUntil = null;
   store.update(id, patch);
   await store.save();
   return { status: 200, body: await freshSnapshotAfterWrite() };
