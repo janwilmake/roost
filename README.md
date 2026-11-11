@@ -34,7 +34,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 
 When the tiles do not fit on the screen, they all shrink, the way the Dock does. The tile under the cursor still grows to full size.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Waiting for us` header of the notes, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session is dimmed. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked. The counts are kept in `~/.roost/state.json`, so a resumed session keeps them.
 
@@ -73,14 +73,23 @@ Waiting for others:
 - each thing an outside party must do, with who
 ```
 
-A session about a customer starts its notes with this header. The counts are the items in the two lists. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
+A session about a customer starts its notes with this header. `Waiting for us` and `Waiting for them` count the items in the two lists. `Late` counts what is late for the customer, and Roost shows it as the badge. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
 
 ```text
-Waiting for us: 2 · Waiting for them: 1
+Late: 1 · Waiting for us: 2 · Waiting for them: 1
 Last meeting: Sam with Lisa (Acme), Tue 10 Nov 14:00
 Last message: Lisa (Acme) → Robin, Tue 10 Nov 16:12 (email)
 Next meeting: Sam with Lisa (Acme), Thu 12 Nov 10:00
 ```
+
+Each of these adds one to `Late`. A thing that matches two rules counts once.
+
+- A conversation with the customer has waited more than 24 working hours for our reply, in any channel: email, Intercom, Slack, WhatsApp or another one. Count one per conversation, not per message.
+- We promised the customer something by a date, and that date passed without delivery. Count one per promise.
+- Nobody had contact with the customer for more than a week, and no meeting with them is planned. This counts one at most.
+- The customer reported a must-have feature or bug more than two weeks ago, and it is not fixed. Count one per item.
+
+Put each late thing in `Waiting for you`, with the reason, for example `- (late: no reply for 2 days) answer Lisa's email about the import`.
 
 Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
 

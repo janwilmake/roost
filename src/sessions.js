@@ -142,11 +142,13 @@ export function summarizeHistory(historyText) {
 }
 
 /**
- * The number in the badge: the sum of the "Waiting for us: N" header lines, or else the items
- * in the "Waiting for you" list of the notes.
+ * The number in the badge: the sum of the "Late: N" counts of the customer headers, or else of their
+ * "Waiting for us: N" counts, or else the items in the "Waiting for you" list of the notes.
  */
 export function waitingForUs(notes) {
   if (!notes) return 0;
+  const late = [...notes.matchAll(/(?:^|[\s·—-])Late:\s*(\d+)/gm)];
+  if (late.length) return late.reduce((sum, match) => sum + Number(match[1]), 0);
   const headers = [...notes.matchAll(/Waiting for us:\s*(\d+)/gi)];
   if (headers.length) return headers.reduce((sum, match) => sum + Number(match[1]), 0);
   let inList = false;

@@ -112,6 +112,8 @@ test('the badge counts the header, or else the items waiting for you', () => {
   assert.equal(waitingForUs('About: x\nWaiting for you:\n- a\n- b\nWaiting for others:\n- c'), 2);
   assert.equal(waitingForUs('About: nothing waits'), 0);
   assert.equal(waitingForUs(null), 0);
+  assert.equal(waitingForUs('Late: 1 · Waiting for us: 4 · Waiting for them: 2'), 1);
+  assert.equal(waitingForUs('Acme — Late: 0 · Waiting for us: 3\nGlobex — Late: 2 · Waiting for us: 1'), 2);
 });
 
 test('new sessions go at the end, and ended sessions keep their place', () => {
