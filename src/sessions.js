@@ -26,12 +26,36 @@ export function isShownSession(file) {
   return Boolean(file) && Number.isInteger(file.pid) && typeof file.sessionId === 'string' && file.entrypoint !== 'sdk-cli';
 }
 
-export function deriveStatus({ rawStatus, statusUpdatedAt = 0, snoozeUntil, snoozedByRule = false, lastSeenAt = 0, now }) {
+export function deriveStatus({ rawStatus, statusUpdatedAt = 0, snoozeUntil, snoozedByRule = false, wip = false, lastSeenAt = 0, now }) {
   if ((snoozeUntil && snoozeUntil > now) || snoozedByRule) return 'snoozed';
   if (rawStatus === 'busy') return 'working';
   if (rawStatus === 'shell') return 'shell';
+  if (rawStatus === 'idle' && wip) return 'wip';
   if (rawStatus === 'idle') return statusUpdatedAt > lastSeenAt ? 'needs-me' : 'quiet';
   return 'needs-me'; // `waiting`, and any status a future Claude Code adds: never hide those.
+}
+
+/** A wip mark older than this stops hiding the session, in case the work it waits on died silently. */
+export const WIP_MAX_MS = 6 * 3600_000;
+const WIP_CLEARED = { wip: null, wipAt: null, wipBase: null, wipEndAt: null };
+
+/** The wip fields to save when a session gets a wip mark, given its session file at that moment. */
+export function wipStart(text, { status, statusUpdatedAt }, now) {
+  // Set from inside a turn: the mark holds through the end of that turn. Set while idle: it holds from now.
+  return { wip: text, wipAt: now, wipBase: statusUpdatedAt ?? null, wipEndAt: status === 'idle' ? (statusUpdatedAt ?? null) : null };
+}
+
+/**
+ * What a poll does to a wip mark: null to keep it, or the fields to save.
+ * The mark ends when the session starts a new turn after the one that set it: the work it waited on came back,
+ * or the user typed. A turn that still waits sets it again.
+ */
+export function wipChange(saved, { status, statusUpdatedAt }, now) {
+  if (saved.wip == null) return null;
+  if (!(now - saved.wipAt <= WIP_MAX_MS)) return WIP_CLEARED;
+  if (statusUpdatedAt === saved.wipBase) return null;
+  if (saved.wipEndAt == null) return status === 'idle' ? { wipEndAt: statusUpdatedAt } : null;
+  return statusUpdatedAt === saved.wipEndAt ? null : WIP_CLEARED;
 }
 
 export function parseProcesses(psOutput) {

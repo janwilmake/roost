@@ -138,6 +138,9 @@ struct Face {
     let waiting: Int
     let focusMs: Double
     let workMs: Double
+    /// What a session waits on while Claude is not thinking, such as "watching CI". Set by the session or by you.
+    let wip: String?
+    let wipAt: Double?
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -160,10 +163,12 @@ struct Face {
         waiting = json["waiting"] as? Int ?? 0
         focusMs = json["focusMs"] as? Double ?? 0
         workMs = json["workMs"] as? Double ?? 0
+        wip = json["wip"] as? String
+        wipAt = json["wipAt"] as? Double
         topic = json["topic"] as? String
     }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(wip ?? "")" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -171,7 +176,8 @@ struct Face {
     }
 
     var detail: String {
-        let status = status == "snoozed" ? statusText : [statusText, Face.duration(since).map { "for \($0)" }].compactMap { $0 }.joined(separator: " ")
+        let start = status == "wip" ? wipAt : since
+        let status = status == "snoozed" ? statusText : [statusText, Face.duration(start).map { "for \($0)" }].compactMap { $0 }.joined(separator: " ")
         let opened = Face.duration(openedAt).map { "open \($0)" } ?? ""
         let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
         let repeats = Face.rulesText(snoozeRules).map { "snoozes \($0)" } ?? ""
@@ -218,6 +224,7 @@ struct Face {
         case "needs-me": return waitingFor.map { "Needs me · \($0)" } ?? "Needs me"
         case "working": return "Working"
         case "shell": return "Shell command running"
+        case "wip": return wip.flatMap { $0.isEmpty ? nil : "Work in progress · \($0)" } ?? "Work in progress"
         case "snoozed":
             guard let snoozeUntil else { return "Snoozed" }
             let formatter = DateFormatter()
@@ -288,6 +295,8 @@ func topicDetail(_ members: [Face], collapsed: Bool) -> String {
     var parts = ["\(members.count) session\(members.count == 1 ? "" : "s")"]
     if needing > 0 { parts.append("\(needing) need\(needing == 1 ? "s" : "") you") }
     if working > 0 { parts.append("\(working) working") }
+    let wip = members.filter { $0.status == "wip" }.count
+    if wip > 0 { parts.append("\(wip) work in progress") }
     let spent = Face.timeSpent(focusMs: members.reduce(0) { $0 + $1.focusMs }, workMs: members.reduce(0) { $0 + $1.workMs })
     if !spent.isEmpty { parts.append(spent) }
     parts.append(collapsed ? "click to expand" : "click to collapse")
@@ -685,7 +694,7 @@ class TileView: StripItemView {
     private let waiting: Int
     private var spinner: SpinnerView?
 
-    private var showsCount: Bool { waiting > 0 && status != "snoozed" }
+    private var showsCount: Bool { waiting > 0 && status != "snoozed" && status != "wip" }
 
     private var dotRect: NSRect {
         let side = bounds.width * 0.3
@@ -715,15 +724,16 @@ class TileView: StripItemView {
 
     func drawNotificationDot() {
         if showsCount {
-            drawCount()
+            drawPill(waiting > 99 ? "99+" : String(waiting), color: .systemRed)
+        } else if status == "wip" || status == "shell" {
+            drawPill("wip", color: .systemGray)
         } else if status == "needs-me" {
             NSColor.systemRed.setFill()
             NSBezierPath(ovalIn: dotRect).fill()
         }
     }
 
-    private func drawCount() {
-        let text = waiting > 99 ? "99+" : String(waiting)
+    private func drawPill(_ text: String, color: NSColor) {
         let height = bounds.width * 0.38
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: height * 0.68, weight: .semibold), .foregroundColor: NSColor.white,
@@ -731,7 +741,7 @@ class TileView: StripItemView {
         let size = (text as NSString).size(withAttributes: attributes)
         let width = max(height, size.width + height * 0.55)
         let badge = NSRect(x: bounds.maxX - width, y: bounds.maxY - height, width: width, height: height)
-        NSColor.systemRed.setFill()
+        color.setFill()
         NSBezierPath(roundedRect: badge, xRadius: height / 2, yRadius: height / 2).fill()
         (text as NSString).draw(at: NSPoint(x: badge.midX - size.width / 2, y: badge.midY - size.height / 2), withAttributes: attributes)
     }
@@ -779,9 +789,10 @@ final class TopicView: TileView {
     init(frame: NSRect, members: [Face]) {
         previews = members.prefix(4).map { ($0.image, $0.emoji) }
         let statuses = members.map(\.status)
-        let waiting = members.filter { $0.status != "snoozed" }.reduce(0) { $0 + $1.waiting }
+        let waiting = members.filter { $0.status != "snoozed" && $0.status != "wip" }.reduce(0) { $0 + $1.waiting }
+        let status = ["needs-me", "working", "wip", "shell"].first(where: statuses.contains) ?? "quiet"
         super.init(
-            frame: frame, status: statuses.contains("needs-me") ? "needs-me" : statuses.contains("working") ? "working" : "quiet",
+            frame: frame, status: status,
             waiting: waiting)
     }
 
@@ -1488,6 +1499,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let snoozed = faces.filter { $0.status == "snoozed" }.count
         var parts = [needing == 0 ? "Nobody needs you" : "\(needing) need\(needing == 1 ? "s" : "") you"]
         if working > 0 { parts.append("\(working) working") }
+        let wip = faces.filter { $0.status == "wip" }.count
+        if wip > 0 { parts.append("\(wip) work in progress") }
         if snoozed > 0 { parts.append("\(snoozed) snoozed (under +)") }
         return parts.joined(separator: " · ")
     }
@@ -1693,6 +1706,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if face.status == "snoozed" {
             menu.addItem(ActionItem("Wake") { [weak self] in self?.post("\(path)/wake") })
+        }
+        if face.status == "wip" {
+            menu.addItem(ActionItem("Not in Progress") { [weak self] in self?.post(path, ["wip": NSNull()]) })
+        } else if face.status == "needs-me" || face.status == "quiet" {
+            // For work Claude waits on without saying so: the mark ends when the session starts its next turn.
+            menu.addItem(ActionItem("Work in Progress (until it continues)") { [weak self] in self?.post(path, ["wip": "marked by you"]) })
         }
         let snooze = NSMenuItem(title: "Snooze", action: nil, keyEquivalent: "")
         let choices = NSMenu()

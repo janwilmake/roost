@@ -25,7 +25,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Hover a tile              | It grows like the Dock. A label shows the title, status, folder and times.    |
 | Click a session           | Its Terminal window comes forward and flashes an orange border.               |
 | Drag a tile               | It moves to a new place in the priority order. New sessions start at the end. |
-| Right-click a session     | Open, Rename, Mark as Seen, Snooze or Wake, Move to Topic.                    |
+| Right-click a session     | Open, Rename, Mark as Seen, Work in Progress, Snooze or Wake, Move to Topic.  |
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
 | Click the rooster         | The overview opens: every session with its title, status and notes.          |
@@ -34,7 +34,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 
 Each strip fills the height of its screen: its tiles share that height, counted as at least eight tiles, so a bigger screen gets bigger tiles. When the tiles would get smaller than 22 points, the strip shows what fits, the way the Dock does. The tile under the cursor still grows.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A gray `wip` badge means work is in progress while Claude is not thinking: it waits on a background shell, a monitor, a loop or another session. A wip session shows no red dot or count, so you don't open it for nothing. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
@@ -46,7 +46,8 @@ A session joins a topic when you drop it directly under the topic tile, or betwe
 | -------- | ------------------------------------------------------------------------ |
 | Needs me | Claude waits on a prompt, or finished a turn that you did not look at.   |
 | Working  | Claude itself is busy.                                                   |
-| Shell    | Claude only waits on a long-running shell command. It has no indicator.  |
+| Shell    | Claude waits on a shell command that is still running. It shows a gray `wip` badge, unless it has a count. |
+| Work in progress | Claude is idle but waits on work it started: a monitor, a loop wakeup, another session. The session sets it with the roost skill, or you do with right-click, Work in Progress. Gray `wip` badge. It ends by itself when the session starts its next turn, and after 6 hours at most. |
 | Quiet    | Claude is idle and you saw the result.                                   |
 | Snoozed  | Off the strip until the time you chose, or during the hours of a repeating snooze. Find it under + → Snoozed. |
 
@@ -117,6 +118,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
 # Snoozed during work hours, every week:
 curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
   -d '{"snoozeRules": ["workday"]}' "http://127.0.0.1:4777/api/sessions/$id"
+```
+
+## For AI agents: mark work in progress
+
+When a turn ends while work you started still runs and will wake you (a background shell, a Monitor, a loop wakeup, a message you wait for from another session), send `wip` as the last step of the turn, with a few words on what you wait for. The tile then shows a gray `wip` badge in place of its red dot or count.
+
+- You don't need to remove it. Roost clears it as soon as the session starts its next turn, when the work comes back or the user types. If that turn still waits, send `wip` again.
+- `{"wip": null}` removes it at once. A mark ends after 6 hours at most.
+- Don't send it when the turn ends with nothing running, or when the user must act: then the red dot is right.
+- Don't send it from a standing watcher whose badge counts what is late: that count must stay visible.
+
+```bash
+id=$(jq -r .sessionId ~/.claude/sessions/$PPID.json)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
+  -d '{"wip": "watching CI"}' "http://127.0.0.1:4777/api/sessions/$id"
 ```
 
 ## For AI agents: message another session

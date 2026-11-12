@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -177,4 +177,31 @@ test('a headless claude -p run is not on the strip', () => {
   assert.equal(isShownSession({ pid: 1, sessionId: 'a' }), true);
   assert.equal(isShownSession({ pid: 1, sessionId: 'a', entrypoint: 'sdk-cli' }), false);
   assert.equal(isShownSession(null), false);
+});
+
+test('a wip mark hides an idle session until its next turn starts', () => {
+  assert.equal(deriveStatus({ rawStatus: 'idle', statusUpdatedAt: 500, lastSeenAt: 400, wip: true, now: NOW }), 'wip');
+  assert.equal(deriveStatus({ rawStatus: 'waiting', wip: true, now: NOW }), 'needs-me');
+  assert.equal(deriveStatus({ rawStatus: 'busy', wip: true, now: NOW }), 'working');
+  assert.deepEqual(validatePatch({ wip: ' watching CI ' }), { wip: 'watching CI' });
+  assert.throws(() => validatePatch({ wip: 5 }));
+
+  // Set by Claude at the end of a turn: it survives that turn's end, and the next turn clears it.
+  let saved = wipStart('watching CI', { status: 'busy', statusUpdatedAt: 100 }, 150);
+  assert.equal(wipChange(saved, { status: 'busy', statusUpdatedAt: 100 }, 160), null);
+  const ended = wipChange(saved, { status: 'idle', statusUpdatedAt: 200 }, 210);
+  assert.deepEqual(ended, { wipEndAt: 200 });
+  saved = { ...saved, ...ended };
+  assert.equal(wipChange(saved, { status: 'idle', statusUpdatedAt: 200 }, 220), null);
+  assert.equal(wipChange(saved, { status: 'busy', statusUpdatedAt: 300 }, 310).wip, null);
+  // A wake-up turn that the polls missed still clears it.
+  assert.equal(wipChange(saved, { status: 'idle', statusUpdatedAt: 400 }, 410).wip, null);
+
+  // Set by the user while idle: the next turn clears it.
+  const marked = wipStart('marked by you', { status: 'idle', statusUpdatedAt: 500 }, 600);
+  assert.equal(wipChange(marked, { status: 'idle', statusUpdatedAt: 500 }, 700), null);
+  assert.equal(wipChange(marked, { status: 'busy', statusUpdatedAt: 800 }, 810).wip, null);
+  // And no mark outlives its cap.
+  assert.equal(wipChange(marked, { status: 'idle', statusUpdatedAt: 500 }, 600 + WIP_MAX_MS + 1).wip, null);
+  assert.equal(wipChange({}, { status: 'idle', statusUpdatedAt: 1 }, 2), null);
 });

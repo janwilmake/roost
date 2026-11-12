@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SNOOZE_RULES } from './sessions.js';
 
-const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64 };
+const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64, wip: 80 };
 
 export async function openStore(home) {
   await mkdir(home, { recursive: true, mode: 0o700 });
@@ -96,6 +96,10 @@ export function validatePatch(body) {
     const valid = Array.isArray(body.snoozeRules) && body.snoozeRules.every((rule) => SNOOZE_RULES.includes(rule));
     if (!valid) throw new Error('Bad snoozeRules');
     patch.snoozeRules = [...new Set(body.snoozeRules)];
+  }
+  if ('wip' in body) {
+    if (body.wip !== null && (typeof body.wip !== 'string' || body.wip.length > LIMITS.wip)) throw new Error('Bad wip');
+    patch.wip = body.wip === null ? null : body.wip.trim();
   }
   if ('snoozeUntil' in body) {
     if (body.snoozeUntil !== null && !Number.isFinite(body.snoozeUntil)) throw new Error('Bad snoozeUntil');

@@ -6,6 +6,8 @@ import {
   applyNewOrder,
   defaultAvatar,
   deriveStatus,
+  wipChange,
+  wipStart,
   isSameProcess,
   locate,
   mergeOrder,
@@ -114,6 +116,12 @@ async function snapshot() {
         saved = store.get(id);
         changed = true;
       }
+      const wipUpdate = wipChange(saved, file, now);
+      if (wipUpdate) {
+        store.update(id, wipUpdate);
+        saved = store.get(id);
+        changed = true;
+      }
       const time = addTime(saved, { step, watched: beingWatched, present, busy: file.status === 'busy' });
       if (time) {
         store.update(id, time);
@@ -134,7 +142,9 @@ async function snapshot() {
         title,
         autoTitle: tabTitle || file.name || '',
         folder: basename(file.cwd ?? ''),
-        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, snoozedByRule, lastSeenAt: saved.lastSeenAt }),
+        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, snoozedByRule, wip: saved.wip != null, lastSeenAt: saved.lastSeenAt }),
+        wip: saved.wip ?? null,
+        wipAt: saved.wip != null ? saved.wipAt : null,
         rawStatus: file.status,
         waitingFor: typeof file.waitingFor === 'string' ? file.waitingFor : null,
         since: file.statusUpdatedAt ?? null,
@@ -372,6 +382,11 @@ async function handleApi(req, url) {
   if ('notes' in patch) patch.notesAt = now;
   // New rules start fresh: an earlier Wake does not skip them.
   if ('snoozeRules' in patch) patch.awakeUntil = null;
+  if ('wip' in patch) {
+    const file = patch.wip === null ? null : (await readSessionFiles(SESSIONS_DIR)).find((candidate) => candidate.sessionId === id);
+    if (patch.wip !== null && !file) return { status: 404, body: { error: 'This session has ended.' } };
+    Object.assign(patch, file ? wipStart(patch.wip, file, now) : { wipAt: null, wipBase: null, wipEndAt: null });
+  }
   if (patch.topic && store.get(id).topic !== patch.topic) {
     const members = Object.entries(store.state.sessions).filter(([, saved]) => saved.topic === patch.topic).map(([other]) => other);
     store.setOrder(moveIntoTopic(store.state.order, id, members));

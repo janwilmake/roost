@@ -1,6 +1,6 @@
 ---
 name: roost
-description: Keeps this session's tile in Roost (the strip of session tiles at the left edge of the screen) current — its notes, the badge that Roost counts from those notes, its picture and its title. Use it in every Claude Code session, as a side step at the end of any turn in which something started or stopped waiting on the user or on someone else, or the subject or the person of the session changed; when a Roost note says the session has no picture or notes; and when someone asks how Roost works or asks to change this session's title, picture, notes, topic or place in the strip.
+description: Keeps this session's tile in Roost (the strip of session tiles at the left edge of the screen) current — its notes, the badge that Roost counts from those notes, its work-in-progress mark, its picture and its title. Use it in every Claude Code session, as a side step at the end of any turn in which something started or stopped waiting on the user or on someone else, or that ends while a background shell, Monitor, loop or awaited message still runs, or the subject or the person of the session changed; when a Roost note says the session has no picture or notes; and when someone asks how Roost works or asks to change this session's title, picture, notes, topic or place in the strip.
 ---
 
 # Roost
@@ -54,6 +54,12 @@ jq -n --arg notes "$NOTES" '{notes: $notes}' |
 ```
 
 The API answers 200. `null` removes the notes.
+
+### Work in progress
+
+When the turn ends while work you started still runs and will wake you (a background shell, a Monitor, a loop wakeup, a reply you wait for from another session), send `{"wip": "<a few words on what you wait for>"}` to the same endpoint, as the last step of the turn. The tile then shows a gray `wip` badge, not a red dot, so the user doesn't open the session for nothing.
+
+Roost clears the mark itself when the next turn starts; send it again at the end of every turn that still waits. Don't send it when nothing runs, when the user must act, or from a standing watcher whose badge counts late items. Details are in the README, section "For AI agents: mark work in progress".
 
 ## The picture and the title
 
