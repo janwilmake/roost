@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -204,4 +204,14 @@ test('a wip mark hides an idle session until its next turn starts', () => {
   // And no mark outlives its cap.
   assert.equal(wipChange(marked, { status: 'idle', statusUpdatedAt: 500 }, 600 + WIP_MAX_MS + 1).wip, null);
   assert.equal(wipChange({}, { status: 'idle', statusUpdatedAt: 1 }, 2), null);
+});
+
+test('the blue dot counts what waits on a teammate', () => {
+  assert.equal(waitingForTeam('Late: 0 · Waiting for us: 0 · Waiting for them: 1 · Waiting for team: 1'), 1);
+  assert.equal(waitingForTeam('Acme — Late: 0 · Waiting for team: 2\nGlobex — Late: 1 · Waiting for team: 1'), 3);
+  assert.equal(waitingForTeam('About: x\nWaiting for you:\n- a\nWaiting for team:\n- Robin: help article\n- Luc: pricing'), 2);
+  assert.equal(waitingForTeam('Late: 1 · Waiting for us: 1'), 0);
+  assert.equal(waitingForTeam(null), 0);
+  // The team count is not a Late or Waiting for us count.
+  assert.equal(waitingForUs('Late: 0 · Waiting for us: 0 · Waiting for team: 1'), 0);
 });

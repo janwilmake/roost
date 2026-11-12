@@ -190,6 +190,25 @@ export function waitingForUs(notes) {
   return count;
 }
 
+/**
+ * The number behind the blue dot: what a teammate was asked to do, so it waits neither on the user nor on the
+ * customer. The sum of the "Waiting for team: N" counts of the customer headers, or else the items in the
+ * "Waiting for team" list of the notes.
+ */
+export function waitingForTeam(notes) {
+  if (!notes) return 0;
+  const headers = [...notes.matchAll(/Waiting for team:[ \t]*(\d+)/gi)];
+  if (headers.length) return headers.reduce((sum, match) => sum + Number(match[1]), 0);
+  let inList = false;
+  let count = 0;
+  for (const line of notes.split('\n')) {
+    if (/^\s*Waiting for team:\s*$/i.test(line)) inList = true;
+    else if (/^\s*[-*•]\s+\S/.test(line)) count += inList ? 1 : 0;
+    else if (line.trim()) inList = false;
+  }
+  return count;
+}
+
 /** Finds the last title that Claude Code wrote into a transcript. */
 export function lastAiTitle(transcriptText) {
   let title = null;

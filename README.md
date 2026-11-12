@@ -34,7 +34,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 
 Each strip fills the height of its screen: its tiles share that height, counted as at least eight tiles, so a bigger screen gets bigger tiles. When the tiles would get smaller than 22 points, the strip shows what fits, the way the Dock does. The tile under the cursor still grows.
 
-A red dot means the session needs you, and a small orange spinner means it is working. A gray `wip` badge means work is in progress while Claude is not thinking: it waits on a background shell, a monitor, a loop or another session. A wip session shows no red dot or count, so you don't open it for nothing. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
+A red dot means the session needs you, and a small orange spinner means it is working. A blue dot means nothing waits on you, but a teammate owes the next step: the `Waiting for team` count of the notes. Red always wins over blue. A gray `wip` badge means work is in progress while Claude is not thinking: it waits on a background shell, a monitor, a loop or another session. A wip session shows no red dot or count, so you don't open it for nothing. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
@@ -72,12 +72,14 @@ Waiting for you:
 - each thing the user must do or decide
 Waiting for others:
 - each thing an outside party must do, with who
+Waiting for team:
+- each thing the user handed to a teammate, with who and since when
 ```
 
-A session about a customer starts its notes with this header. `Waiting for us` and `Waiting for them` count the items in the two lists. `Late` counts what is late for the customer, and Roost shows it as the badge. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
+A session about a customer starts its notes with this header. `Waiting for us` and `Waiting for them` count the items in the two lists. `Late` counts what is late for the customer, and Roost shows it as the badge. `Waiting for team` counts what the user handed to a teammate; leave it out when it is 0. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
 
 ```text
-Late: 1 · Waiting for us: 2 · Waiting for them: 1
+Late: 1 · Waiting for us: 2 · Waiting for them: 1 · Waiting for team: 1
 Last meeting: Sam with Lisa (Acme), Tue 10 Nov 14:00
 Last message: Lisa (Acme) → Robin, Tue 10 Nov 16:12 (email)
 Next meeting: Sam with Lisa (Acme), Thu 12 Nov 10:00
@@ -91,6 +93,8 @@ Each of these adds one to `Late`. A thing that matches two rules counts once.
 - The customer reported a must-have feature or bug more than two weeks ago, and it is not fixed. Count one per item.
 
 Put each late thing in `Waiting for you`, with the reason, for example `- (late: no reply for 2 days) answer Lisa's email about the import`.
+
+When the user hands the next step of a late thing to a teammate, it stops counting as `Late` and moves to `Waiting for team`, with who and since when, for example `- Robin: add the Teams admin steps to the help article (asked Thu 12 Nov 14:40)`. Roost then shows a blue dot instead of the red badge, as long as nothing else is late. When the teammate replies, decide again: the next step is often ours, and then it counts as `Late` or `Waiting for us` again. When the teammate has not replied within 2 working days, it counts as `Late` again, with the reason, for example `- (late: Robin has not replied for 2 working days) …`.
 
 Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
 

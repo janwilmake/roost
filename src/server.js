@@ -22,6 +22,7 @@ import {
   ruleSnoozes,
   summarizeHistory,
   waitingForUs,
+  waitingForTeam,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
@@ -157,6 +158,7 @@ async function snapshot() {
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
         waiting: waitingForUs(saved.notes),
+        team: waitingForTeam(saved.notes),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         focusMs: Math.round(saved.focusMs ?? 0),

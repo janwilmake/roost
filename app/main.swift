@@ -136,6 +136,8 @@ struct Face {
     let notes: String
     let notesAt: Double?
     let waiting: Int
+    /// Items a teammate was asked to do: a blue dot when nothing waits on you.
+    let team: Int
     let focusMs: Double
     let workMs: Double
     /// What a session waits on while Claude is not thinking, such as "watching CI". Set by the session or by you.
@@ -161,6 +163,7 @@ struct Face {
         notes = json["notes"] as? String ?? ""
         notesAt = json["notesAt"] as? Double
         waiting = json["waiting"] as? Int ?? 0
+        team = json["team"] as? Int ?? 0
         focusMs = json["focusMs"] as? Double ?? 0
         workMs = json["workMs"] as? Double ?? 0
         wip = json["wip"] as? String
@@ -168,7 +171,7 @@ struct Face {
         topic = json["topic"] as? String
     }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(wip ?? "")" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -181,7 +184,8 @@ struct Face {
         let opened = Face.duration(openedAt).map { "open \($0)" } ?? ""
         let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
         let repeats = Face.rulesText(snoozeRules).map { "snoozes \($0)" } ?? ""
-        return [status, repeats, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
+        let teamText = team > 0 ? "waiting for team: \(team)" : ""
+        return [status, teamText, repeats, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
             .filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
@@ -297,6 +301,8 @@ func topicDetail(_ members: [Face], collapsed: Bool) -> String {
     if working > 0 { parts.append("\(working) working") }
     let wip = members.filter { $0.status == "wip" }.count
     if wip > 0 { parts.append("\(wip) work in progress") }
+    let team = members.reduce(0) { $0 + $1.team }
+    if team > 0 { parts.append("\(team) waiting for team") }
     let spent = Face.timeSpent(focusMs: members.reduce(0) { $0 + $1.focusMs }, workMs: members.reduce(0) { $0 + $1.workMs })
     if !spent.isEmpty { parts.append(spent) }
     parts.append(collapsed ? "click to expand" : "click to collapse")
@@ -692,6 +698,7 @@ final class SpinnerView: NSView {
 class TileView: StripItemView {
     private let status: String
     private let waiting: Int
+    private let team: Int
     private var spinner: SpinnerView?
 
     private var showsCount: Bool { waiting > 0 && status != "snoozed" && status != "wip" }
@@ -704,9 +711,10 @@ class TileView: StripItemView {
     /// The badge has the top-right corner, so the spinner moves down.
     private var spinnerRect: NSRect { showsCount ? dotRect.offsetBy(dx: 0, dy: -(bounds.height - dotRect.height)) : dotRect }
 
-    init(frame: NSRect, status: String, waiting: Int) {
+    init(frame: NSRect, status: String, waiting: Int, team: Int = 0) {
         self.status = status
         self.waiting = waiting
+        self.team = team
         super.init(frame: frame)
         if status == "working" {
             let spinner = SpinnerView(frame: spinnerRect)
@@ -725,11 +733,15 @@ class TileView: StripItemView {
     func drawNotificationDot() {
         if showsCount {
             drawPill(waiting > 99 ? "99+" : String(waiting), color: .systemRed)
-        } else if status == "wip" || status == "shell" {
-            drawPill("wip", color: .systemGray)
         } else if status == "needs-me" {
             NSColor.systemRed.setFill()
             NSBezierPath(ovalIn: dotRect).fill()
+        } else if team > 0 && status != "snoozed" {
+            // Waiting for team: nothing waits on you, but a teammate owes the next step.
+            NSColor.systemBlue.setFill()
+            NSBezierPath(ovalIn: dotRect).fill()
+        } else if status == "wip" || status == "shell" {
+            drawPill("wip", color: .systemGray)
         }
     }
 
@@ -754,7 +766,7 @@ final class FaceView: TileView {
     init(frame: NSRect, face: Face) {
         self.face = face
         image = face.image
-        super.init(frame: frame, status: face.status, waiting: face.waiting)
+        super.init(frame: frame, status: face.status, waiting: face.waiting, team: face.team)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -793,7 +805,7 @@ final class TopicView: TileView {
         let status = ["needs-me", "working", "wip", "shell"].first(where: statuses.contains) ?? "quiet"
         super.init(
             frame: frame, status: status,
-            waiting: waiting)
+            waiting: waiting, team: members.filter { $0.status != "snoozed" }.reduce(0) { $0 + $1.team })
     }
 
     required init?(coder: NSCoder) { nil }
