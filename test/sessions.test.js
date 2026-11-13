@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -214,4 +214,12 @@ test('the blue dot counts what waits on a teammate', () => {
   assert.equal(waitingForTeam(null), 0);
   // The team count is not a Late or Waiting for us count.
   assert.equal(waitingForUs('Late: 0 · Waiting for us: 0 · Waiting for team: 1'), 0);
+});
+
+test('inProgress counts what the notes say is handed to the session', () => {
+  assert.equal(inProgress(null), 0);
+  assert.equal(inProgress('Late: 0 · Waiting for us: 0 · Waiting for them: 1 · In progress: 2'), 2);
+  assert.equal(inProgress('Acme — Late: 0 · In progress: 1\nGlobex — Late: 1 · In progress: 2'), 3);
+  assert.equal(inProgress('About: x\nIn progress:\n- send the mail\n- convert transcripts\nOther:\n- not this'), 2);
+  assert.equal(inProgress('Work in progress: 4 sessions'), 0);
 });

@@ -209,6 +209,25 @@ export function waitingForTeam(notes) {
   return count;
 }
 
+/**
+ * What the user handed to the session itself: the sum of the "In progress: N" header fields, or else the items
+ * in the "In progress:" list of the notes. With nothing waiting for the user, the tile shows the gray wip badge
+ * for as long as the notes say so; no turn boundary clears it.
+ */
+export function inProgress(notes) {
+  if (!notes) return 0;
+  const headers = [...notes.matchAll(/(?:^|·[ \t]*|—[ \t]*)In progress:[ \t]*(\d+)/gm)];
+  if (headers.length) return headers.reduce((sum, match) => sum + Number(match[1]), 0);
+  let inList = false;
+  let count = 0;
+  for (const line of notes.split('\n')) {
+    if (/^\s*In progress:\s*$/i.test(line)) inList = true;
+    else if (/^\s*[-*•]\s+\S/.test(line)) count += inList ? 1 : 0;
+    else if (line.trim()) inList = false;
+  }
+  return count;
+}
+
 /** Finds the last title that Claude Code wrote into a transcript. */
 export function lastAiTitle(transcriptText) {
   let title = null;

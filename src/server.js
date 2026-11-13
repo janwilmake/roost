@@ -23,6 +23,7 @@ import {
   summarizeHistory,
   waitingForUs,
   waitingForTeam,
+  inProgress,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
@@ -129,6 +130,10 @@ async function snapshot() {
         saved = store.get(id);
         timeUnsaved = true;
       }
+      // Notes that list work handed to the session show it as wip while nothing waits for the user.
+      const waiting = waitingForUs(saved.notes);
+      const busy = waiting === 0 ? inProgress(saved.notes) : 0;
+      const wipText = saved.wip ?? (busy ? `${busy} item${busy === 1 ? '' : 's'} in progress` : null);
       const tabTitle = tab && tab.title !== screenName && tab.title !== 'Terminal' ? tab.title : '';
       const title = saved.title || tabTitle || file.name || id.slice(0, 8);
       // The Recent menu shows this title once the session has ended.
@@ -143,9 +148,9 @@ async function snapshot() {
         title,
         autoTitle: tabTitle || file.name || '',
         folder: basename(file.cwd ?? ''),
-        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, snoozedByRule, wip: saved.wip != null, lastSeenAt: saved.lastSeenAt }),
-        wip: saved.wip ?? null,
-        wipAt: saved.wip != null ? saved.wipAt : null,
+        status: deriveStatus({ ...facts, snoozeUntil: saved.snoozeUntil, snoozedByRule, wip: wipText != null, lastSeenAt: saved.lastSeenAt }),
+        wip: wipText,
+        wipAt: saved.wip != null ? saved.wipAt : busy ? (saved.notesAt ?? null) : null,
         rawStatus: file.status,
         waitingFor: typeof file.waitingFor === 'string' ? file.waitingFor : null,
         since: file.statusUpdatedAt ?? null,
@@ -157,7 +162,7 @@ async function snapshot() {
         photo: saved.photo ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
-        waiting: waitingForUs(saved.notes),
+        waiting,
         team: waitingForTeam(saved.notes),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,

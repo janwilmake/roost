@@ -47,7 +47,7 @@ A session joins a topic when you drop it directly under the topic tile, or betwe
 | Needs me | Claude waits on a prompt, or finished a turn that you did not look at.   |
 | Working  | Claude itself is busy.                                                   |
 | Shell    | Claude waits on a shell command that is still running. It shows a gray `wip` badge, unless it has a count. |
-| Work in progress | Claude is idle but waits on work it started: a monitor, a loop wakeup, another session. The session sets it with the roost skill, or you do with right-click, Work in Progress. Gray `wip` badge. It ends by itself when the session starts its next turn, and after 6 hours at most. |
+| Work in progress | Claude is idle but waits on work it started: a monitor, a loop wakeup, another session. The session sets it with the roost skill, or you do with right-click, Work in Progress. Gray `wip` badge. It ends by itself when the session starts its next turn, and after 6 hours at most. Notes with an `In progress` list or count show it too, while nothing waits for you, until the notes change. |
 | Quiet    | Claude is idle and you saw the result.                                   |
 | Snoozed  | Off the strip until the time you chose, or during the hours of a repeating snooze. Find it under + → Snoozed. |
 
@@ -74,9 +74,11 @@ Waiting for others:
 - each thing an outside party must do, with who
 Waiting for team:
 - each thing the user handed to a teammate, with who and since when
+In progress:
+- each thing the user handed to this session, with when it should be done
 ```
 
-A session about a customer starts its notes with this header. `Waiting for us` and `Waiting for them` count the items in the two lists. `Late` counts what is late for the customer, and Roost shows it as the badge. `Waiting for team` counts what the user handed to a teammate; leave it out when it is 0. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
+A session about a customer starts its notes with this header. `Waiting for us` and `Waiting for them` count the items in the two lists. `Late` counts what is late for the customer, and Roost shows it as the badge. `Waiting for team` counts what the user handed to a teammate, and `In progress` what the user handed to this session; leave either out when it is 0. "Who" names both sides: the person on our team and the person at the customer. "When" is a date and time, for example `Tue 10 Nov 14:05`. Write `none found` when a value is not known. A session about several customers gives the header once per customer, with the customer's name in front.
 
 ```text
 Late: 1 · Waiting for us: 2 · Waiting for them: 1 · Waiting for team: 1
@@ -95,6 +97,8 @@ Each of these adds one to `Late`. A thing that matches two rules counts once.
 Put each late thing in `Waiting for you`, with the reason, for example `- (late: no reply for 2 days) answer Lisa's email about the import`.
 
 When the user hands the next step of a late thing to a teammate, it stops counting as `Late` and moves to `Waiting for team`, with who and since when, for example `- Robin: add the Teams admin steps to the help article (asked Thu 12 Nov 14:40)`. Roost then shows a blue dot instead of the red badge, as long as nothing else is late. When the teammate replies, decide again: the next step is often ours, and then it counts as `Late` or `Waiting for us` again. When the teammate has not replied within 2 working days, it counts as `Late` again, with the reason, for example `- (late: Robin has not replied for 2 working days) …`.
+
+When the user hands a thing to this session ("send the mail for me"), it stops counting as `Late` and moves to `In progress`, with when it should be done, for example `- send Lisa the import guide (until Fri 13 Nov 18:00)`. While nothing waits for the user, Roost shows the gray `wip` badge for as long as the notes list it; no turn boundary clears it. Take it out when the work is done. When the time passes and it is not done, it counts as `Late` again.
 
 Keep them under 300 words. Update them at the end of each turn in which one of the lists changed. Roost shows how old the notes are.
 
@@ -126,7 +130,9 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
 
 ## For AI agents: mark work in progress
 
-When a turn ends while work you started still runs and will wake you (a background shell, a Monitor, a loop wakeup, a message you wait for from another session), send `wip` as the last step of the turn, with a few words on what you wait for. The tile then shows a gray `wip` badge in place of its red dot or count.
+A session with notes shows work in progress through its notes: an `In progress:` list, or an `In progress: N` field in a customer header (see "For AI agents: write notes"). That lasts until the notes change, and it shows only while nothing waits for the user.
+
+The `wip` mark is the fallback for a session without such notes. When a turn ends while work you started still runs and will wake you (a background shell, a Monitor, a loop wakeup, a message you wait for from another session), send `wip` as the last step of the turn, with a few words on what you wait for. The tile then shows a gray `wip` badge in place of its red dot or count.
 
 - You don't need to remove it. Roost clears it as soon as the session starts its next turn, when the work comes back or the user types. If that turn still waits, send `wip` again.
 - `{"wip": null}` removes it at once. A mark ends after 6 hours at most.
