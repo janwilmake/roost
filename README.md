@@ -92,7 +92,7 @@ Each of these adds one to `Late`. A thing that matches two rules counts once.
 - A conversation with the customer has waited more than 24 working hours for our reply, in any channel: email, Intercom, Slack, WhatsApp or another one. Count one per conversation, not per message.
 - We promised the customer something by a date, and that date passed without delivery. Count one per promise.
 - Nobody had contact with the customer for more than a week, and no meeting with them is planned. This counts one at most.
-- The customer reported a must-have feature or bug more than two weeks ago, and it is not fixed. Count one per item.
+- The customer reported a must-have feature or bug more than two weeks ago, and it is not fixed. Count one per item. It does not count while we promised it by a date that has not passed, or while its conversation waits for the customer's answer.
 
 Put each late thing in `Waiting for you`, with the reason, for example `- (late: no reply for 2 days) answer Lisa's email about the import`.
 
