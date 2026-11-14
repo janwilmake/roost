@@ -19,14 +19,22 @@ The rules say, for example, where to find the photo of a contact, or which heade
 
 This session's id: `jq -r .sessionId ~/.claude/sessions/$PPID.json`.
 
-## After every turn
+## The last step of every turn
 
-At the end of each turn, ask: did an item that waits for the user, or for someone else, appear or disappear? Did the subject of the session change?
+Before a turn ends, check this session's notes against what the turn did. The hook shows the
+"Waiting for you" items at the start of each turn, so you do not have to remember them.
 
-- **Yes: update the notes.** Roost counts the badge from the notes, so the notes are the badge. Write them again in full.
-- **No: do nothing.** Do not send the same notes again.
+- **Done, or decided by the user:** remove it. An item the user approved in chat ("yes, do it")
+  no longer waits for them, even before the work finishes.
+- **New:** add what the user must now do or decide, or what now waits on someone else.
+- **The subject moved:** rewrite the About line.
 
-Do it as a side step. Do not mention it to the user unless it fails.
+If anything changed, post the notes in full as the last tool call of the turn. If nothing changed,
+send nothing. Do it as a side step. Do not mention it to the user unless it fails.
+
+The usual failure: notes written once, early in a session, and never again. The badge then counts
+work that was finished hours ago, and the user opens the session for nothing. Long turns with many
+tool calls are where the last step gets dropped, so check the notes then above all.
 
 ### The notes
 
