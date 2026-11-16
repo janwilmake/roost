@@ -145,7 +145,7 @@ struct Face {
     let wip: String?
     let wipAt: Double?
     /// "active" for the tab you look at in Terminal, "last" for that tab while another app is in front.
-    let front: String?
+    var front: String?
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -1387,6 +1387,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminalFailed = false
     private var latest: [String: Face] = [:]
     private var appliesNextPoll = false
+    /// The session you just clicked, until Terminal confirms it: a poll in flight still names the old tab.
+    private var clickedFront: (id: String, until: Date)?
     private var isCollapsing = false
     private var editor: TitleEditor?
     private let overview = Overview()
@@ -1513,7 +1515,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             switch entry {
             case .face(let face):
                 let view = FaceView(frame: itemFrame, face: face)
-                view.onClick = { [weak self] in self?.post("api/sessions/\(face.id)/open") }
+                view.onClick = { [weak self] in
+                    self?.showFront(face.id)
+                    self?.post("api/sessions/\(face.id)/open")
+                }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: face, event, view) }
                 let next = index + 1 < shown.count ? shown[index + 1].memberOf : nil
                 content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic,
@@ -1916,11 +1921,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
+    private func withFront(_ id: String, in faces: [Face]) -> [Face] {
+        faces.map { face in
+            var face = face
+            face.front = face.id == id ? "active" : nil
+            return face
+        }
+    }
+
+    /// Moves the border at the click, before Terminal has brought the tab forward.
+    private func showFront(_ id: String) {
+        clickedFront = (id, Date().addingTimeInterval(2))
+        faces = withFront(id, in: faces)
+        signature = currentSignature(faces: faces, topics: topics)
+        layoutStrips()
+    }
+
     private func currentSignature(faces: [Face], topics: [Topic]) -> String {
         (faces.map(\.signature) + topics.map(\.signature)).joined(separator: ",")
     }
 
     private func show(faces: [Face], topics: [Topic], terminalFailed: Bool) {
+        var faces = faces
+        if let clicked = clickedFront {
+            if Date() < clicked.until, faces.first(where: { $0.front != nil })?.id != clicked.id {
+                faces = withFront(clicked.id, in: faces)
+            } else {
+                clickedFront = nil
+            }
+        }
         self.terminalFailed = terminalFailed
         // The time counters change on every poll, so tooltips read them here instead of rebuilding the strip.
         latest = Dictionary(faces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
