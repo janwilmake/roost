@@ -38,7 +38,9 @@ const PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 const TRANSCRIPT_TAIL = 256 * 1024;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BODY = 1024 * 1024;
-const TABS_MAX_AGE_MS = 3000;
+const TABS_MAX_AGE_MS = 1000;
+// A poll waits this long for a fresh tab list, then serves the last one, so a slow Terminal never stalls the strip.
+const TABS_WAIT_MS = 400;
 const FLASH_WAIT_MS = 25_000;
 // Time counts between two polls, but a gap longer than this (sleep, the app closed) counts as this much.
 const TIME_STEP_MAX_MS = 10_000;
@@ -72,10 +74,11 @@ function refreshTabs() {
   return tabListLoading;
 }
 
-// A poll serves the last known tabs and never waits for Terminal.
 function currentTabs() {
-  if (tabList && Date.now() - tabListAt > TABS_MAX_AGE_MS) refreshTabs();
-  return tabList ?? refreshTabs();
+  if (!tabList) return refreshTabs();
+  if (Date.now() - tabListAt <= TABS_MAX_AGE_MS) return tabList;
+  const last = tabList;
+  return Promise.race([refreshTabs(), new Promise((resolve) => setTimeout(() => resolve(last), TABS_WAIT_MS))]);
 }
 
 async function loadLive(tabSource = currentTabs()) {
@@ -190,7 +193,7 @@ for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
   process.on(signal, () => store.save().finally(() => process.exit(0)));
 }
 
-// The app polls every two seconds; one `ps` and one `osascript` serve every screen.
+// The app polls every second; one `ps` and one `osascript` serve every screen.
 let cached = null;
 function latestSnapshot() {
   cached ??= snapshot().finally(() => setTimeout(() => (cached = null), 800));
@@ -345,7 +348,14 @@ async function createTopic(body) {
 
 async function handleApi(req, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') return { status: 200, body: { ok: true } };
-  if (req.method === 'GET' && url.pathname === '/api/sessions') return { status: 200, body: await latestSnapshot() };
+  if (req.method === 'GET' && url.pathname === '/api/sessions') {
+    // `fresh` asks Terminal again, for a change the app saw itself, such as another app coming to the front.
+    if (url.searchParams.has('fresh')) {
+      tabListAt = 0;
+      cached = null;
+    }
+    return { status: 200, body: await latestSnapshot() };
+  }
   if (req.method === 'GET' && url.pathname === '/api/flash') return { status: 200, body: { bounds: await nextFlash() } };
   if (req.method === 'GET' && url.pathname === '/api/locations') return { status: 200, body: { locations: await topLocations() } };
   if (req.method === 'GET' && url.pathname === '/api/recent') return { status: 200, body: { sessions: await recentSessions() } };
@@ -379,7 +389,11 @@ async function handleApi(req, url) {
   const [, id, action] = route;
   if (action === 'open') {
     const bounds = await focusKnownTab(id);
-    return bounds ? markOpened(id, bounds) : openSession(id);
+    const result = await (bounds ? markOpened(id, bounds) : openSession(id));
+    // The next poll then reads the tab that just came forward, so its border shows at once.
+    tabListAt = 0;
+    cached = null;
+    return result;
   }
   const now = Date.now();
   const actions = {

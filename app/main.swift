@@ -1875,7 +1875,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if isUp {
                 self.pollFaces()
-                Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.pollFaces() }
+                Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.pollFaces() }
+                // Switching apps moves the border between full and faint; ask at once instead of at the next poll.
+                NSWorkspace.shared.notificationCenter.addObserver(
+                    forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
+                ) { [weak self] _ in self?.pollFaces(fresh: true) }
                 self.waitForFlash()
             } else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { self.connectWhenUp() }
@@ -1883,8 +1887,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func pollFaces() {
-        URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/sessions")) { [weak self] data, _, _ in
+    private func pollFaces(fresh: Bool = false) {
+        let url = serverURL.appendingPathComponent("api/sessions")
+        URLSession.shared.dataTask(with: fresh ? url.appending(queryItems: [URLQueryItem(name: "fresh", value: "1")]) : url) { [weak self] data, _, _ in
             guard let data, let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let sessions = root["sessions"] as? [[String: Any]]
             else { return }
