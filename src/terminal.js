@@ -8,11 +8,12 @@ const run = promisify(execFile);
 const LIST_TABS = `
 const terminal = Application('Terminal');
 const windows = terminal.windows;
-const [ids, fronts, ttys, busy, selected, titles] = [windows.id(), windows.frontmost(), windows.tabs.tty(), windows.tabs.busy(), windows.tabs.selected(), windows.tabs.customTitle()];
+// frontmost() is false for every window while another app is in front; index 1 is the top window either way.
+const [ids, order, ttys, busy, selected, titles] = [windows.id(), windows.index(), windows.tabs.tty(), windows.tabs.busy(), windows.tabs.selected(), windows.tabs.customTitle()];
 const rows = [String(terminal.frontmost())];
 ids.forEach((id, w) => ttys[w].forEach((tty, t) => {
   // A finished window keeps reporting a tty that a live window may now use.
-  if (busy[w][t]) rows.push([id, t + 1, tty, selected[w][t], fronts[w], titles[w][t]].join('\\t'));
+  if (busy[w][t]) rows.push([id, t + 1, tty, selected[w][t], order[w] === 1, titles[w][t]].join('\\t'));
 }));
 rows.join('\\n');
 `;

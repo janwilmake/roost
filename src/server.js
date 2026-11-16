@@ -171,6 +171,8 @@ async function snapshot() {
         topic: topicIds.has(saved.topic) ? saved.topic : null,
         screenName,
         openable: Boolean(tab || screenName),
+        // The selected tab of Terminal's front window: 'active' while Terminal is the front app, else 'last'.
+        front: tab?.selected && tab.windowFront ? (terminalFront ? 'active' : 'last') : null,
       };
     });
 

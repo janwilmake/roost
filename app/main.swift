@@ -143,6 +143,8 @@ struct Face {
     /// What a session waits on while Claude is not thinking, such as "watching CI". Set by the session or by you.
     let wip: String?
     let wipAt: Double?
+    /// "active" for the tab you look at in Terminal, "last" for that tab while another app is in front.
+    let front: String?
     var topic: String?
 
     init?(_ json: [String: Any]) {
@@ -168,10 +170,11 @@ struct Face {
         workMs = json["workMs"] as? Double ?? 0
         wip = json["wip"] as? String
         wipAt = json["wipAt"] as? Double
+        front = json["front"] as? String
         topic = json["topic"] as? String
     }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -699,6 +702,7 @@ class TileView: StripItemView {
     private let status: String
     private let waiting: Int
     private let team: Int
+    private let front: String?
     private var spinner: SpinnerView?
 
     private var showsCount: Bool { waiting > 0 && status != "snoozed" && status != "wip" }
@@ -711,10 +715,11 @@ class TileView: StripItemView {
     /// The badge has the top-right corner, so the spinner moves down.
     private var spinnerRect: NSRect { showsCount ? dotRect.offsetBy(dx: 0, dy: -(bounds.height - dotRect.height)) : dotRect }
 
-    init(frame: NSRect, status: String, waiting: Int, team: Int = 0) {
+    init(frame: NSRect, status: String, waiting: Int, team: Int = 0, front: String? = nil) {
         self.status = status
         self.waiting = waiting
         self.team = team
+        self.front = front
         super.init(frame: frame)
         if status == "working" {
             let spinner = SpinnerView(frame: spinnerRect)
@@ -728,6 +733,15 @@ class TileView: StripItemView {
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         spinner?.frame = spinnerRect
+    }
+
+    /// A border around the tile of the session you look at; a faint one while another app is in front.
+    func drawFrontBorder() {
+        guard let front else { return }
+        let border = tilePath(bounds.insetBy(dx: 1.25, dy: 1.25))
+        border.lineWidth = 2.5
+        NSColor.controlAccentColor.withAlphaComponent(front == "active" ? 1 : 0.4).setStroke()
+        border.stroke()
     }
 
     func drawNotificationDot() {
@@ -766,7 +780,7 @@ final class FaceView: TileView {
     init(frame: NSRect, face: Face) {
         self.face = face
         image = face.image
-        super.init(frame: frame, status: face.status, waiting: face.waiting, team: face.team)
+        super.init(frame: frame, status: face.status, waiting: face.waiting, team: face.team, front: face.front)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -784,6 +798,7 @@ final class FaceView: TileView {
             drawEmoji(face.emoji, in: inner)
         }
         NSGraphicsContext.restoreGraphicsState()
+        drawFrontBorder()
         drawNotificationDot()
     }
 }
@@ -798,14 +813,16 @@ func drawEmoji(_ emoji: String, in rect: NSRect) {
 final class TopicView: TileView {
     private let previews: [(image: NSImage?, emoji: String)]
 
-    init(frame: NSRect, members: [Face]) {
+    /// An open topic shows its sessions beside it, so only a closed one carries their border.
+    init(frame: NSRect, members: [Face], collapsed: Bool) {
         previews = members.prefix(4).map { ($0.image, $0.emoji) }
         let statuses = members.map(\.status)
         let waiting = members.filter { $0.status != "snoozed" && $0.status != "wip" }.reduce(0) { $0 + $1.waiting }
         let status = ["needs-me", "working", "wip", "shell"].first(where: statuses.contains) ?? "quiet"
         super.init(
             frame: frame, status: status,
-            waiting: waiting, team: members.filter { $0.status != "snoozed" }.reduce(0) { $0 + $1.team })
+            waiting: waiting, team: members.filter { $0.status != "snoozed" }.reduce(0) { $0 + $1.team },
+            front: collapsed ? members.lazy.compactMap(\.front).first : nil)
     }
 
     required init?(coder: NSCoder) { nil }
@@ -834,6 +851,7 @@ final class TopicView: TileView {
             NSGraphicsContext.restoreGraphicsState()
         }
         NSGraphicsContext.restoreGraphicsState()
+        drawFrontBorder()
         drawNotificationDot()
     }
 }
@@ -1486,7 +1504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic,
                             notes: face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
             case .topic(let topic, let members):
-                let view = TopicView(frame: itemFrame, members: members)
+                let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: topic, event, view) }
                 content.add(item: view, title: topic.name) { [weak self] in
