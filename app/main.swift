@@ -76,13 +76,13 @@ func chickenPath() -> NSBezierPath {
 }
 
 /// Draws the logo, an outlined chicken in an egg, filling a square.
-func drawLogo(in rect: NSRect) {
+func drawLogo(in rect: NSRect, egg: Bool = true) {
     NSGraphicsContext.saveGraphicsState()
     let toRect = NSAffineTransform()
     toRect.translateX(by: rect.minX, yBy: rect.minY)
     toRect.scale(by: rect.width / 100)
     toRect.concat()
-    NSGradient(starting: Palette.terracotta, ending: Palette.deepTerracotta)?.draw(in: eggPath(), angle: -90)
+    if egg { NSGradient(starting: Palette.terracotta, ending: Palette.deepTerracotta)?.draw(in: eggPath(), angle: -90) }
 
     let toEgg = NSAffineTransform()
     toEgg.translateX(by: 17.7, yBy: 10.3)
@@ -109,8 +109,9 @@ func renderIcon(pixels: Int, to path: String) throws {
     toPixels.scale(by: CGFloat(pixels) / 1024)
     toPixels.concat()
 
-    // The margin follows the macOS app icon grid.
-    drawLogo(in: NSRect(x: 100, y: 100, width: 824, height: 824))
+    // A full-bleed icon: macOS rounds the corners itself, and puts an icon with transparent edges on a gray plate.
+    NSGradient(starting: Palette.terracotta, ending: Palette.deepTerracotta)?.draw(in: NSRect(x: 0, y: 0, width: 1024, height: 1024), angle: -90)
+    drawLogo(in: NSRect(x: -29, y: 40, width: 1060, height: 1060), egg: false)
     NSGraphicsContext.restoreGraphicsState()
 
     guard let png = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
@@ -364,6 +365,14 @@ final class StripView: NSView {
 
     var isBusy: Bool { timer != nil }
 
+    /// A rebuild under the cursor keeps the zoom and the label, so a click does not shrink the strip for a moment.
+    func handOver(to next: StripView) {
+        next.amount = amount
+        next.cursor = cursor
+        next.tooltip = tooltip
+        tooltip = nil
+    }
+
     func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, notes: String = "",
              detail: @escaping () -> String) {
         let stripe = endsTopic ? TopicEndView(frame: .zero) : nil
@@ -431,8 +440,14 @@ final class StripView: NSView {
             tooltip?.close()
             return
         }
-        // A rebuild under a resting cursor produces no mouseEntered.
-        if window.frame.contains(NSEvent.mouseLocation) { DispatchQueue.main.async { self.begin() } }
+        if amount > 0 {
+            // Zoomed already: grow at once, before the panel shows a frame at rest size.
+            begin()
+            placeItems()
+        } else if window.frame.contains(NSEvent.mouseLocation) {
+            // A rebuild under a resting cursor produces no mouseEntered.
+            DispatchQueue.main.async { self.begin() }
+        }
     }
 
     private func begin() {
@@ -740,7 +755,7 @@ class TileView: StripItemView {
         guard let front else { return }
         let border = tilePath(bounds.insetBy(dx: 1.25, dy: 1.25))
         border.lineWidth = 2.5
-        NSColor.controlAccentColor.withAlphaComponent(front == "active" ? 1 : 0.4).setStroke()
+        Palette.terracotta.withAlphaComponent(front == "active" ? 1 : 0.45).setStroke()
         border.stroke()
     }
 
@@ -1518,6 +1533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
         content.add(item: plus, title: "New Session") { "Start Claude in a folder" }
+        (panel.contentView as? StripView)?.handOver(to: content)
         panel.contentView = content
         panel.orderFrontRegardless()
     }
