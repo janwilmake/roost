@@ -52,6 +52,8 @@ In progress:
 
 Leave out a section that is empty. Keep the notes under 300 words.
 
+An item with a deadline ends with it: `(due Wed 18 Nov 17:00)`, or `(due 20 Nov)` without a time. Give one whenever a date is known: a promise, a meeting, a reply the user owes. Roost puts it in the overview's agenda, and the session in the This week folder when it falls before next Monday. Write "due" only for a real deadline, never for a date in passing.
+
 The badge is the number of items under `Waiting for you`. A customer session starts with a header line instead, and Roost counts its badge from that header (`Late`, else `Waiting for us`). The header format and the rules for `Late` are in the Roost README (`../../README.md` from the folder of this skill), section "For AI agents: write notes".
 
 Put an item under `Waiting for you` only when the user must act. When the user hands an item to a teammate, move it to `Waiting for team`: Roost shows a blue dot for it instead of counting it. When the teammate replies, or has not replied in 2 working days, decide again where it goes. A customer header has a `Waiting for team: N` count for this (see the README). When the user hands an item to this session ("send the mail for me"), move it to `In progress`, with when it should be done; take it out when the work is done. While nothing waits for the user, Roost shows the gray `wip` badge for it until the notes change. A customer header has an `In progress: N` count for this. An item that waits for a release, a date or another person goes under `Waiting for others`. When the work is done, `Waiting for you` is empty and the badge is 0.

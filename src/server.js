@@ -24,6 +24,7 @@ import {
   waitingForUs,
   waitingForTeam,
   inProgress,
+  deadlines,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
@@ -167,6 +168,7 @@ async function snapshot() {
         notes: saved.notes || null,
         waiting,
         team: waitingForTeam(saved.notes),
+        deadlines: deadlines(saved.notes, now),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         focusMs: Math.round(saved.focusMs ?? 0),

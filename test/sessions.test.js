@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -222,4 +222,34 @@ test('inProgress counts what the notes say is handed to the session', () => {
   assert.equal(inProgress('Acme — Late: 0 · In progress: 1\nGlobex — Late: 1 · In progress: 2'), 3);
   assert.equal(inProgress('About: x\nIn progress:\n- send the mail\n- convert transcripts\nOther:\n- not this'), 2);
   assert.equal(inProgress('Work in progress: 4 sessions'), 0);
+});
+
+test('deadlines: due, back by and promised by, each with its own text', () => {
+  const now = new Date(2026, 10, 17, 12, 0).getTime();
+  const notes = [
+    'Waiting for you:',
+    '- (late: promised by Thu 15 Oct 17:00) several email signatures per user',
+    'Open, not late:',
+    '- answer Rashied about the notetaker (due Wed 18 Nov 11:37)',
+    '- Luc: send Bart the offer (asked Fri 13 Nov 12:30, back by Wed 25 Nov 12:30)',
+    '- plan the meeting with Danny (due 20 Nov); offer our office',
+    'Waiting for us, not late: Careermate (5, next due Wed 18 Nov 11:19), Techproof (2), Velmer (2, next due Wed 18 Nov 10:31)',
+    '- a plan for 4 Jan (due 4 Jan)',
+    'Waiting for us, not late: TFI Group (1, next due Fri 20 Nov 17:00)',
+  ].join('\n');
+  const found = deadlines(notes, now);
+  assert.deepEqual(found.map((d) => d.text), [
+    'several email signatures per user',
+    'Velmer',
+    'Careermate',
+    'answer Rashied about the notetaker',
+    'TFI Group',
+    'plan the meeting with Danny; offer our office',
+    'Luc: send Bart the offer',
+    'a plan for 4 Jan',
+  ]);
+  assert.equal(found[0].at, new Date(2026, 9, 15, 17, 0).getTime());
+  assert.equal(found.at(-1).at, new Date(2027, 0, 4, 23, 59).getTime());
+  assert.equal(found[5].allDay, true);
+  assert.deepEqual(deadlines(null, now), []);
 });

@@ -147,6 +147,8 @@ struct Face {
     /// "active" for the tab you look at in Terminal, "last" for that tab while another app is in front.
     var front: String?
     var topic: String?
+    /// Every "(due …)", "back by …" and "promised by …" in the notes, soonest first.
+    let deadlines: [Deadline]
 
     init?(_ json: [String: Any]) {
         guard let id = json["id"] as? String, let status = json["status"] as? String else { return nil }
@@ -173,7 +175,10 @@ struct Face {
         wipAt = json["wipAt"] as? Double
         front = json["front"] as? String
         topic = json["topic"] as? String
+        deadlines = (json["deadlines"] as? [[String: Any]] ?? []).compactMap(Deadline.init)
     }
+
+    var dueThisWeek: [Deadline] { deadlines.filter { thisWeek().contains(Date(timeIntervalSince1970: $0.at / 1000)) } }
 
     var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")" }
 
@@ -254,10 +259,73 @@ struct Face {
     }
 }
 
+struct Deadline {
+    let at: Double
+    let allDay: Bool
+    let text: String
+
+    init?(_ json: [String: Any]) {
+        guard let at = json["at"] as? Double, let text = json["text"] as? String else { return nil }
+        self.at = at
+        self.text = text
+        allDay = json["allDay"] as? Bool ?? false
+    }
+
+    var date: Date { Date(timeIntervalSince1970: at / 1000) }
+}
+
+/// Monday 00:00 to the next Monday 00:00, local time.
+func thisWeek(_ now: Date = Date()) -> DateInterval {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.firstWeekday = 2
+    return calendar.dateInterval(of: .weekOfYear, for: now) ?? DateInterval(start: now, duration: 0)
+}
+
+let thisWeekTopicId = "roost-this-week"
+
+private let dueFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "EEE d MMM"
+    return formatter
+}()
+
+private let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "HH:mm"
+    return formatter
+}()
+
+/// "Today", "Tomorrow", or "Thu 19 Nov".
+func dayName(_ date: Date) -> String {
+    if Calendar.current.isDateInToday(date) { return "Today" }
+    if Calendar.current.isDateInTomorrow(date) { return "Tomorrow" }
+    return dueFormatter.string(from: date)
+}
+
+func dueTime(_ deadline: Deadline) -> String { deadline.allDay ? "" : timeFormatter.string(from: deadline.date) }
+
+/// Each deadline of these sessions as one line, soonest first: the tooltip of the This week folder.
+func agendaText(_ faces: [Face], _ pick: (Face) -> [Deadline]) -> String {
+    faces.flatMap { face in pick(face).map { (face, $0) } }
+        .sorted { $0.1.at < $1.1.at }
+        .map { face, deadline in
+            "\(dayName(deadline.date)) \(dueTime(deadline)) · \(faces.count > 1 ? face.title + ": " : "")\(deadline.text)".replacingOccurrences(of: "  ", with: " ")
+        }
+        .joined(separator: "\n")
+}
+
 struct Topic {
     let id: String
     let name: String
     var collapsed: Bool
+
+    init(id: String, name: String, collapsed: Bool) {
+        self.id = id
+        self.name = name
+        self.collapsed = collapsed
+    }
 
     init?(_ json: [String: Any]) {
         guard let id = json["id"] as? String, let name = json["name"] as? String else { return nil }
@@ -581,8 +649,9 @@ final class StripView: NSView {
 
     /// The dragged tile follows the cursor and the others open a gap at the drop slot.
     private func stepReorder(dragged: Int, cursor: CGFloat) {
+        let first = items.firstIndex { $0.view.reorders } ?? 1
         let last = items.lastIndex { $0.view.reorders } ?? items.count - 1
-        dropSlot = min(max(Int(((cursor - metrics.size / 2) / metrics.step).rounded()), 1), last)
+        dropSlot = min(max(Int(((cursor - metrics.size / 2) / metrics.step).rounded()), first), last)
         amount = 0
         for (index, item) in items.enumerated() {
             let isDragged = index == dragged
@@ -590,7 +659,7 @@ final class StripView: NSView {
             let slot = isDragged ? dropSlot : (order < dropSlot ? order : order + 1)
             let current = bounds.height - topPadding - item.view.frame.midY
             let center = isDragged
-                ? min(max(cursor, restCenter(1)), restCenter(last))
+                ? min(max(cursor, restCenter(first)), restCenter(last))
                 : current + (restCenter(slot) - current) * 0.3
             let target = isDragged ? metrics.size * draggedScale : metrics.size
             setFrame(of: item.view, center: center, size: item.view.frame.width + (target - item.view.frame.width) * 0.3)
@@ -609,7 +678,9 @@ class StripItemView: NSView {
     var onClick: () -> Void = {}
     var onMoved: () -> Void = {}
     var onMenu: (NSEvent, NSView) -> Void = { _, _ in }
-    var reorders: Bool { true }
+    /// False for the copies in the This week folder: their own tile is the one to drag.
+    var canReorder = true
+    var reorders: Bool { canReorder }
     private var lastMouse: NSPoint?
     private var didDrag = false
 
@@ -1191,6 +1262,60 @@ final class OverviewRow: NSView {
     }
 }
 
+/// One deadline in the overview's agenda: time, session and item. A click opens the session.
+final class AgendaRow: NSView {
+    static let height: CGFloat = 22
+    private let time: String
+    private let late: Bool
+    private let session: String
+    private let text: String
+    private let onOpen: () -> Void
+    private var hovered = false {
+        didSet { needsDisplay = true }
+    }
+
+    override var isFlipped: Bool { true }
+
+    init(deadline: Deadline, face: Face, late: Bool, width: CGFloat, onOpen: @escaping () -> Void) {
+        time = late ? dueFormatter.string(from: deadline.date) : (deadline.allDay ? "all day" : dueTime(deadline))
+        self.late = late
+        session = face.title
+        text = deadline.text
+        self.onOpen = onOpen
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true }
+    override func mouseExited(with event: NSEvent) { hovered = false }
+    override func mouseUp(with event: NSEvent) { onOpen() }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovered {
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 6, yRadius: 6).fill()
+        }
+        let font = NSFont.systemFont(ofSize: 12)
+        let x = OverviewRow.inset
+        (time as NSString).draw(at: NSPoint(x: x, y: 3), withAttributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: late ? .semibold : .regular),
+            .foregroundColor: late ? NSColor.systemRed : NSColor.secondaryLabelColor])
+        let line = NSMutableAttributedString(string: session, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor])
+        line.append(NSAttributedString(string: "  \(text)", attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
+        line.draw(with: NSRect(x: x + 64, y: 3, width: bounds.width - x * 2 - 64, height: 16), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
+}
+
 /// Every session in strip order, with its title, status and notes. The rooster opens it.
 final class Overview: NSObject, NSWindowDelegate {
     private let panel: OverviewPanel
@@ -1241,6 +1366,42 @@ final class Overview: NSObject, NSWindowDelegate {
 
     func windowDidResize(_ notification: Notification) { rebuild() }
 
+    private func header(_ text: String, at y: CGFloat, width: CGFloat, color: NSColor = .secondaryLabelColor) -> NSTextField {
+        let label = NSTextField(labelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = color
+        label.frame = NSRect(x: OverviewRow.inset, y: y, width: width - 2 * OverviewRow.inset, height: 16)
+        return label
+    }
+
+    /// Every deadline of every session, by day: overdue first, then today, tomorrow and on.
+    private func addAgenda(to document: NSView, at top: CGFloat, width: CGFloat) -> CGFloat {
+        let now = Date()
+        let items = faces.flatMap { face in face.deadlines.map { (face, $0) } }.sorted { $0.1.at < $1.1.at }
+        guard !items.isEmpty else { return top }
+        var y = top
+        document.addSubview(header("AGENDA", at: y + 10, width: width))
+        y += 30
+        var day: String?
+        for (face, deadline) in items {
+            let late = deadline.date < now
+            let name = late ? "Overdue" : dayName(deadline.date)
+            if name != day {
+                day = name
+                document.addSubview(header(name, at: y + 4, width: width, color: late ? .systemRed : .labelColor))
+                y += 22
+            }
+            let row = AgendaRow(deadline: deadline, face: face, late: late, width: width) { [weak self] in
+                self?.onOpen(face.id)
+                self?.panel.close()
+            }
+            row.frame.origin.y = y
+            document.addSubview(row)
+            y += AgendaRow.height
+        }
+        return y + 8
+    }
+
     private func rebuild() {
         let width = scroll.contentSize.width
         let document = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 0))
@@ -1255,6 +1416,7 @@ final class Overview: NSObject, NSWindowDelegate {
             }
             y += TimeChartView.height + 14
         }
+        y = addAgenda(to: document, at: y, width: width)
         let expanded = topics.map { topic -> Topic in
             var open = topic
             open.collapsed = false
@@ -1390,6 +1552,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The session you just clicked, until Terminal confirms it: a poll in flight still names the old tab.
     private var clickedFront: (id: String, until: Date)?
     private var isCollapsing = false
+    /// How many tiles of the This week folder head the strip; a drag counts its slots after them.
+    private var weekTiles = 0
     private var editor: TitleEditor?
     private let overview = Overview()
 
@@ -1485,11 +1649,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let visible = screen.visibleFrame
         let offset = perchOffset
         let room = visible.height - offset.y - stripBottomMargin
-        let all = entries(faces: shownFaces, topics: topics)
+        let week = weekEntries()
+        let all = week + entries(faces: shownFaces, topics: topics)
         // The rooster and the plus tile count too.
         let tiles = TileMetrics.filling(room, count: all.count + 2)
         let capacity = max(0, Int((room - tiles.size - tiles.gap) / tiles.step) - 1)
         let shown = Array(all.prefix(capacity))
+        weekTiles = min(week.count, shown.count)
         // The extra gap leaves room for a stripe under a topic at the end of the sessions.
         let height = tiles.size + CGFloat(shown.count + 1) * tiles.step + tiles.gap
         panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: tiles.size, height: height), display: false)
@@ -1512,17 +1678,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.add(item: rooster, title: "Roost") { [weak self] in self?.summary ?? "" }
 
         for (index, entry) in shown.enumerated() {
+            let inWeek = index < week.count
             switch entry {
             case .face(let face):
                 let view = FaceView(frame: itemFrame, face: face)
+                view.canReorder = !inWeek
                 view.onClick = { [weak self] in
                     self?.showFront(face.id)
                     self?.post("api/sessions/\(face.id)/open")
                 }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: face, event, view) }
                 let next = index + 1 < shown.count ? shown[index + 1].memberOf : nil
-                content.add(item: view, title: face.title, sessionId: face.id, endsTopic: face.topic != nil && next != face.topic,
-                            notes: face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
+                // A copy has no session id, so a topic that folds shut does not fold it too.
+                content.add(item: view, title: face.title, sessionId: inWeek ? nil : face.id,
+                            endsTopic: inWeek ? index == week.count - 1 : face.topic != nil && next != face.topic,
+                            notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
+            case .topic(let topic, let members) where inWeek:
+                let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
+                view.canReorder = false
+                view.onClick = { [weak self] in
+                    guard let self else { return }
+                    self.weekCollapsed.toggle()
+                    self.layoutStrips()
+                }
+                content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }) {
+                    "\(members.count) session\(members.count == 1 ? "" : "s") with something due before Monday"
+                }
             case .topic(let topic, let members):
                 let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
@@ -1567,7 +1748,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A snoozed session leaves the strip. The Snoozed menu under the plus tile lists it.
     private var shownFaces: [Face] { faces.filter { $0.status != "snoozed" } }
 
-    private func reorder(from: Int, to: Int) {
+    private var weekCollapsed: Bool {
+        get { UserDefaults.standard.object(forKey: "thisWeekCollapsed") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "thisWeekCollapsed") }
+    }
+
+    /// A folder on top with a copy of every session that has something due this week, soonest first.
+    private func weekEntries() -> [Entry] {
+        let members = shownFaces.filter { !$0.dueThisWeek.isEmpty }.sorted { $0.dueThisWeek[0].at < $1.dueThisWeek[0].at }
+        guard !members.isEmpty else { return [] }
+        let topic = Topic(id: thisWeekTopicId, name: "This week", collapsed: weekCollapsed)
+        return [.topic(topic, members: members)] + (topic.collapsed ? [] : members.map(Entry.face))
+    }
+
+    private func reorder(from slot: Int, to target: Int) {
+        let (from, to) = (slot - weekTiles, target - weekTiles)
         var list = entries(faces: shownFaces, topics: topics)
         guard from != to, list.indices.contains(from), list.indices.contains(to) else {
             layoutStrips()

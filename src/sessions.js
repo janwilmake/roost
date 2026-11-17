@@ -312,3 +312,41 @@ export function moveIntoTopic(order, id, memberIds) {
   if (last === -1) return order;
   return [...rest.slice(0, last + 1), id, ...rest.slice(last + 1)];
 }
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const DEADLINE = /\b(?:due|back by|promised by)\s+(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+)?(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:\s+(\d{1,2}):(\d{2}))?/gi;
+
+/**
+ * Every deadline the notes name: "(due Wed 18 Nov 11:37)", "back by …", "promised by …", in local time.
+ * A date without a year falls in the year that puts it nearest to now.
+ */
+export function deadlines(notes, now) {
+  if (!notes) return [];
+  const out = [];
+  for (const raw of notes.split('\n')) {
+    const line = raw.replace(/^\s*[-*•]\s+/, '').trim();
+    const matches = [...line.matchAll(DEADLINE)];
+    for (const match of matches) {
+      const [, day, month, hour, minute] = match;
+      const allDay = hour === undefined;
+      const year = new Date(now).getFullYear();
+      const at = [year - 1, year, year + 1]
+        .map((y) => new Date(y, MONTHS.indexOf(month.toLowerCase()), Number(day), allDay ? 23 : Number(hour), allDay ? 59 : Number(minute)).getTime())
+        .reduce((best, t) => (Math.abs(t - now) < Math.abs(best - now) ? t : best));
+      const open = line.lastIndexOf('(', match.index);
+      const close = line.indexOf(')', match.index);
+      const inParens = open !== -1 && close !== -1 && line.lastIndexOf(')', match.index) < open;
+      let text;
+      // A summary line such as "Careermate (5, next due …), Velmer (2, next due …)": each part is its own deadline.
+      if (matches.length === 1 && line.slice(match.index - 5, match.index).toLowerCase() !== 'next ') {
+        text = inParens ? `${line.slice(0, open)} ${line.slice(close + 1)}` : line.slice(0, match.index);
+      } else {
+        const end = inParens ? open : match.index;
+        const start = Math.max(line.lastIndexOf(', ', end), line.lastIndexOf(': ', end));
+        text = line.slice(start === -1 ? 0 : start + 2, end);
+      }
+      out.push({ at, allDay, text: text.replace(/\s+/g, ' ').replace(/ ([;,.])/g, '$1').replace(/^[\s,;:—-]+|[\s,;:—-]+$/g, '') || line });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
