@@ -113,6 +113,11 @@ export function validatePatch(body) {
       });
     }
   }
+  if ('deadline' in body) {
+    // A deadline you set yourself, from the tile's menu: a moment in ms, or null to clear it.
+    if (body.deadline !== null && !Number.isFinite(body.deadline)) throw new Error('Bad deadline');
+    patch.deadline = body.deadline;
+  }
   if ('snoozeUntil' in body) {
     if (body.snoozeUntil !== null && !Number.isFinite(body.snoozeUntil)) throw new Error('Bad snoozeUntil');
     patch.snoozeUntil = body.snoozeUntil;

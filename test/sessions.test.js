@@ -262,4 +262,7 @@ test('deadlines sent by a tool are checked and kept as numbers', () => {
   assert.equal(validatePatch({ deadlines: null }).deadlines, null);
   assert.throws(() => validatePatch({ deadlines: [{ at: 'soon', text: 'x' }] }));
   assert.throws(() => validatePatch({ deadlines: [{ at: 1, text: '' }] }));
+  assert.equal(validatePatch({ deadline: 1_800_000_000_000 }).deadline, 1_800_000_000_000);
+  assert.equal(validatePatch({ deadline: null }).deadline, null);
+  assert.throws(() => validatePatch({ deadline: 'friday' }));
 });

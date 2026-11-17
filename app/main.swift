@@ -149,6 +149,8 @@ struct Face {
     var topic: String?
     /// Every "(due …)", "back by …" and "promised by …" in the notes, soonest first.
     let deadlines: [Deadline]
+    /// The deadline you set from the menu, in ms.
+    let deadline: Double?
 
     init?(_ json: [String: Any]) {
         guard let id = json["id"] as? String, let status = json["status"] as? String else { return nil }
@@ -176,11 +178,12 @@ struct Face {
         front = json["front"] as? String
         topic = json["topic"] as? String
         deadlines = (json["deadlines"] as? [[String: Any]] ?? []).compactMap(Deadline.init)
+        deadline = json["deadline"] as? Double
     }
 
     var dueThisWeek: [Deadline] { deadlines.filter { thisWeek().contains(Date(timeIntervalSince1970: $0.at / 1000)) } }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")|\(deadline ?? 0)" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -304,22 +307,47 @@ func dayName(_ date: Date) -> String {
     return dueFormatter.string(from: date)
 }
 
+/// "Today 18:00", "Tomorrow 18:00" or "Fri 20 Nov 18:00", for a moment in ms.
+func dueText(_ ms: Double) -> String {
+    let date = Date(timeIntervalSince1970: ms / 1000)
+    return "\(dayName(date)) \(timeFormatter.string(from: date))"
+}
+
+extension Double {
+    var date: Date { Date(timeIntervalSince1970: self / 1000) }
+}
+
 func dueTime(_ deadline: Deadline) -> String { deadline.allDay ? "" : timeFormatter.string(from: deadline.date) }
 
-/// The tooltip of the This week folder: one short line per session, at its first deadline.
-/// For one session: its deadlines, up to three, each cut to one line.
+/// The tooltip of the This week folder: each moment once, with the sessions due then under it.
+/// For one session: its deadlines, up to three, grouped the same way.
 func agendaText(_ faces: [Face], _ pick: (Face) -> [Deadline]) -> String {
     func when(_ deadline: Deadline) -> String { "\(dayName(deadline.date)) \(dueTime(deadline))".trimmingCharacters(in: .whitespaces) }
     func cut(_ text: String, _ limit: Int) -> String { text.count <= limit ? text : String(text.prefix(limit - 1)) + "…" }
+    var rows: [(Deadline, String)]
+    var more = 0
     if faces.count == 1, let face = faces.first {
         let due = pick(face)
-        return (due.prefix(3).map { "\(when($0)) · \(cut($0.text, 50))" } + (due.count > 3 ? ["+\(due.count - 3) more"] : []))
-            .joined(separator: "\n")
+        rows = due.prefix(3).map { ($0, cut($0.text, 50)) }
+        more = max(0, due.count - 3)
+    } else {
+        rows = faces.compactMap { face in
+            let due = pick(face)
+            return due.first.map { ($0, cut(face.title, 32) + (due.count > 1 ? " (+\(due.count - 1))" : "")) }
+        }
     }
-    return faces.compactMap { face in
-        let due = pick(face)
-        return due.first.map { "\(when($0)) · \(cut(face.title, 32))\(due.count > 1 ? " (+\(due.count - 1))" : "")" }
-    }.joined(separator: "\n")
+    var lines: [String] = []
+    var last: String?
+    for (deadline, text) in rows.sorted(by: { $0.0.at < $1.0.at }) {
+        let moment = when(deadline)
+        if moment != last {
+            lines.append(moment)
+            last = moment
+        }
+        lines.append("   \(text)")
+    }
+    if more > 0 { lines.append("+\(more) more") }
+    return lines.joined(separator: "\n")
 }
 
 struct Topic {
@@ -1282,8 +1310,9 @@ final class AgendaRow: NSView {
 
     override var isFlipped: Bool { true }
 
-    init(deadline: Deadline, face: Face, late: Bool, width: CGFloat, onOpen: @escaping () -> Void) {
-        time = late ? dueFormatter.string(from: deadline.date) : (deadline.allDay ? "all day" : dueTime(deadline))
+    init(deadline: Deadline, face: Face, late: Bool, showsTime: Bool, width: CGFloat, onOpen: @escaping () -> Void) {
+        let moment = late ? dueFormatter.string(from: deadline.date) : (deadline.allDay ? "all day" : dueTime(deadline))
+        time = showsTime ? moment : ""
         self.late = late
         session = face.title
         text = deadline.text
@@ -1389,6 +1418,7 @@ final class Overview: NSObject, NSWindowDelegate {
         document.addSubview(header("AGENDA", at: y + 10, width: width))
         y += 30
         var day: String?
+        var moment: Double?
         for (face, deadline) in items {
             let late = deadline.date < now
             let name = late ? "Overdue" : dayName(deadline.date)
@@ -1396,8 +1426,12 @@ final class Overview: NSObject, NSWindowDelegate {
                 day = name
                 document.addSubview(header(name, at: y + 4, width: width, color: late ? .systemRed : .labelColor))
                 y += 22
+                moment = nil
             }
-            let row = AgendaRow(deadline: deadline, face: face, late: late, width: width) { [weak self] in
+            // The rows of one moment sit under it, so the time shows once.
+            let showsTime = late ? dueFormatter.string(from: deadline.date) != moment.map({ dueFormatter.string(from: $0.date) }) : deadline.at != moment
+            moment = deadline.at
+            let row = AgendaRow(deadline: deadline, face: face, late: late, showsTime: showsTime, width: width) { [weak self] in
                 self?.onOpen(face.id)
                 self?.panel.close()
             }
@@ -1544,6 +1578,73 @@ final class TitleEditor: NSObject, NSTextFieldDelegate, NSWindowDelegate {
     }
 }
 
+/// A date and time picker beside a tile. Enter or Set saves, Esc or clicking away cancels.
+final class DateEditor: NSObject, NSWindowDelegate {
+    private final class Panel: NSPanel {
+        override var canBecomeKey: Bool { true }
+        var onCancel: () -> Void = {}
+        override func cancelOperation(_ sender: Any?) { onCancel() }
+    }
+
+    private let panel: Panel
+    private let picker: NSDatePicker
+    private let onCommit: (Date) -> Void
+    private let onClose: () -> Void
+    private let previousApp = NSWorkspace.shared.frontmostApplication
+    private var isDone = false
+
+    init(date: Date, beside tile: NSRect, onCommit: @escaping (Date) -> Void, onClose: @escaping () -> Void) {
+        let size = NSSize(width: 260, height: 40)
+        panel = Panel(
+            contentRect: NSRect(origin: NSPoint(x: tile.maxX + 8, y: tile.midY - size.height / 2), size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        picker = NSDatePicker(frame: NSRect(x: 8, y: 8, width: 170, height: 24))
+        self.onCommit = onCommit
+        self.onClose = onClose
+        super.init()
+        picker.datePickerStyle = .textFieldAndStepper
+        picker.datePickerElements = [.yearMonthDay, .hourMinute]
+        picker.dateValue = date
+        let button = NSButton(title: "Set", target: self, action: #selector(save))
+        button.keyEquivalent = "\r"
+        button.bezelStyle = .rounded
+        button.frame = NSRect(x: 186, y: 6, width: 66, height: 28)
+        let box = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+        box.material = .popover
+        box.state = .active
+        box.wantsLayer = true
+        box.layer?.cornerRadius = 8
+        box.addSubview(picker)
+        box.addSubview(button)
+        panel.level = .statusBar
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
+        panel.contentView = box
+        panel.onCancel = { [weak self] in self?.end(save: false) }
+    }
+
+    func show() {
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(picker)
+    }
+
+    @objc private func save() { end(save: true) }
+
+    func windowDidResignKey(_ notification: Notification) { end(save: false) }
+
+    private func end(save: Bool) {
+        guard !isDone else { return }
+        isDone = true
+        panel.close()
+        if save { onCommit(picker.dateValue) }
+        previousApp?.activate()
+        onClose()
+    }
+}
+
 // MARK: - App
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -1561,6 +1662,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// How many tiles of the This week folder head the strip; a drag counts its slots after them.
     private var weekTiles = 0
     private var editor: TitleEditor?
+    private var dateEditor: DateEditor?
     private let overview = Overview()
 
     private var perchOffset: NSPoint {
@@ -1986,6 +2088,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         snooze.submenu = choices
         menu.addItem(snooze)
 
+        let deadline = NSMenuItem(title: face.deadline == nil ? "Deadline" : "Deadline: \(dueText(face.deadline!))", action: nil, keyEquivalent: "")
+        let dates = NSMenu()
+        for (title, at) in Self.deadlineChoices() {
+            dates.addItem(ActionItem(title) { [weak self] in self?.post(path, ["deadline": at]) })
+        }
+        dates.addItem(ActionItem("Pick a Date…") { [weak self, weak view] in
+            guard let self, let view else { return }
+            let start = face.deadline.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Self.deadlineChoices()[0].1.date
+            self.dateEditor = DateEditor(date: start, beside: self.screenRect(of: view), onCommit: { date in
+                self.post(path, ["deadline": (date.timeIntervalSince1970 * 1000).rounded()])
+            }, onClose: { [weak self] in self?.dateEditor = nil })
+            self.dateEditor?.show()
+        })
+        if face.deadline != nil {
+            dates.addItem(.separator())
+            dates.addItem(ActionItem("Clear Deadline") { [weak self] in self?.post(path, ["deadline": NSNull()]) })
+        }
+        deadline.submenu = dates
+        menu.addItem(deadline)
+
         let move = NSMenuItem(title: "Move to Topic", action: nil, keyEquivalent: "")
         let destinations = NSMenu()
         for topic in topics where topic.id != face.topic {
@@ -2029,6 +2151,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showMenu(for topic: Topic, _ event: NSEvent, _ view: NSView) {
         NSMenu.popUpContextMenu(buildMenu(for: topic, beside: view), with: event, for: view)
+    }
+
+    /// 18:00 today (while it is still ahead), tomorrow, this Friday, next Monday and next Friday.
+    private static func deadlineChoices() -> [(String, Double)] {
+        let now = Date()
+        let calendar = Calendar.current
+        func evening(_ day: Date) -> Date { calendar.date(bySettingHour: 18, minute: 0, second: 0, of: day) ?? day }
+        func next(_ weekday: Int, after day: Date) -> Date {
+            calendar.nextDate(after: day, matching: DateComponents(weekday: weekday), matchingPolicy: .nextTime) ?? day
+        }
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now) ?? now
+        let friday = next(6, after: calendar.startOfDay(for: now).addingTimeInterval(-1))
+        let monday = next(2, after: now)
+        var days: [Date] = []
+        if evening(now) > now { days.append(evening(now)) }
+        days.append(evening(tomorrow))
+        days.append(evening(friday))
+        days.append(evening(monday))
+        days.append(evening(next(6, after: monday)))
+        var seen = Set<Date>()
+        return days.filter { $0 > now && seen.insert($0).inserted }.sorted().map { (dueText($0.timeIntervalSince1970 * 1000), $0.timeIntervalSince1970 * 1000) }
     }
 
     private static func snoozeChoices() -> [(String, Double)] {
