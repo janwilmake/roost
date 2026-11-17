@@ -306,14 +306,20 @@ func dayName(_ date: Date) -> String {
 
 func dueTime(_ deadline: Deadline) -> String { deadline.allDay ? "" : timeFormatter.string(from: deadline.date) }
 
-/// Each deadline of these sessions as one line, soonest first: the tooltip of the This week folder.
+/// The tooltip of the This week folder: one short line per session, at its first deadline.
+/// For one session: its deadlines, up to three, each cut to one line.
 func agendaText(_ faces: [Face], _ pick: (Face) -> [Deadline]) -> String {
-    faces.flatMap { face in pick(face).map { (face, $0) } }
-        .sorted { $0.1.at < $1.1.at }
-        .map { face, deadline in
-            "\(dayName(deadline.date)) \(dueTime(deadline)) · \(faces.count > 1 ? face.title + ": " : "")\(deadline.text)".replacingOccurrences(of: "  ", with: " ")
-        }
-        .joined(separator: "\n")
+    func when(_ deadline: Deadline) -> String { "\(dayName(deadline.date)) \(dueTime(deadline))".trimmingCharacters(in: .whitespaces) }
+    func cut(_ text: String, _ limit: Int) -> String { text.count <= limit ? text : String(text.prefix(limit - 1)) + "…" }
+    if faces.count == 1, let face = faces.first {
+        let due = pick(face)
+        return (due.prefix(3).map { "\(when($0)) · \(cut($0.text, 50))" } + (due.count > 3 ? ["+\(due.count - 3) more"] : []))
+            .joined(separator: "\n")
+    }
+    return faces.compactMap { face in
+        let due = pick(face)
+        return due.first.map { "\(when($0)) · \(cut(face.title, 32))\(due.count > 1 ? " (+\(due.count - 1))" : "")" }
+    }.joined(separator: "\n")
 }
 
 struct Topic {
