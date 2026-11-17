@@ -252,4 +252,14 @@ test('deadlines: due, back by and promised by, each with its own text', () => {
   assert.equal(found.at(-1).at, new Date(2027, 0, 4, 23, 59).getTime());
   assert.equal(found[5].allDay, true);
   assert.deepEqual(deadlines(null, now), []);
+  assert.equal(deadlines('- send Lisa the guide (until Fri 20 Nov 18:00)', now)[0].text, 'send Lisa the guide');
+});
+
+test('deadlines sent by a tool are checked and kept as numbers', () => {
+  assert.deepEqual(validatePatch({ deadlines: [{ at: '2026-11-18T10:00:00Z', text: ' reply to Rob ' }] }).deadlines, [
+    { at: Date.parse('2026-11-18T10:00:00Z'), allDay: false, text: 'reply to Rob' },
+  ]);
+  assert.equal(validatePatch({ deadlines: null }).deadlines, null);
+  assert.throws(() => validatePatch({ deadlines: [{ at: 'soon', text: 'x' }] }));
+  assert.throws(() => validatePatch({ deadlines: [{ at: 1, text: '' }] }));
 });

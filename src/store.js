@@ -3,7 +3,7 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SNOOZE_RULES } from './sessions.js';
 
-const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64, wip: 80 };
+const LIMITS = { emoji: 32, title: 200, notes: 3000, photo: 400_000, topicName: 80, topicId: 64, wip: 80, deadlines: 300, deadlineText: 300 };
 
 export async function openStore(home) {
   await mkdir(home, { recursive: true, mode: 0o700 });
@@ -100,6 +100,18 @@ export function validatePatch(body) {
   if ('wip' in body) {
     if (body.wip !== null && (typeof body.wip !== 'string' || body.wip.length > LIMITS.wip)) throw new Error('Bad wip');
     patch.wip = body.wip === null ? null : body.wip.trim();
+  }
+  if ('deadlines' in body) {
+    // A tool that knows every deadline sends them here, so the 300-word notes need not hold them all.
+    if (body.deadlines === null) patch.deadlines = null;
+    else {
+      if (!Array.isArray(body.deadlines) || body.deadlines.length > LIMITS.deadlines) throw new Error('Bad deadlines');
+      patch.deadlines = body.deadlines.map((item) => {
+        const at = typeof item?.at === 'string' ? Date.parse(item.at) : item?.at;
+        if (!Number.isFinite(at) || typeof item.text !== 'string' || !item.text.trim() || item.text.length > LIMITS.deadlineText) throw new Error('Bad deadlines');
+        return { at, allDay: item.allDay === true, text: item.text.trim() };
+      });
+    }
   }
   if ('snoozeUntil' in body) {
     if (body.snoozeUntil !== null && !Number.isFinite(body.snoozeUntil)) throw new Error('Bad snoozeUntil');

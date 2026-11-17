@@ -23,9 +23,20 @@ fi
 notes=$(jq -r '.notes // ""' <<<"$session")
 grep -qE '^(.* — )?Late: [0-9]+' <<<"$notes" && exit 0
 waiting=$(awk '/^Waiting for you:/{on=1; next} on && /^- /{print; next} on{exit}' <<<"$notes")
-[ -n "$waiting" ] || exit 0
-cat <<EOF
+# Items that name a date but no deadline: Roost's agenda and This week folder read only "(due …)".
+undated=$(grep -E '^- ' <<<"$notes" | grep -iE '(^|[^0-9])[0-9]{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)' |
+  grep -viE '(due|back by|promised by|until) ')
+if [ -n "$waiting" ]; then
+  cat <<EOF
 Roost badge for this session (id $id) counts these items under "Waiting for you":
 $waiting
 At the end of this turn, remove each item that is done or that the user decided, add what is new, and post the notes again (roost skill, "The last step of every turn"). Do not mention this to the user.
 EOF
+fi
+if [ -n "$undated" ]; then
+  cat <<EOF
+These items in this session's Roost notes name a date but no deadline:
+$undated
+When one of them must be done by a date, end it with "(due Wed 18 Nov 17:00)" when you next post the notes, so Roost's agenda shows it. A date that is no deadline needs nothing. Do not mention this to the user.
+EOF
+fi

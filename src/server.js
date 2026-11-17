@@ -168,7 +168,7 @@ async function snapshot() {
         notes: saved.notes || null,
         waiting,
         team: waitingForTeam(saved.notes),
-        deadlines: deadlines(saved.notes, now),
+        deadlines: saved.deadlines ? [...saved.deadlines].sort((a, b) => a.at - b.at) : deadlines(saved.notes, now),
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
         focusMs: Math.round(saved.focusMs ?? 0),

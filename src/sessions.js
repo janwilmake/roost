@@ -314,10 +314,10 @@ export function moveIntoTopic(order, id, memberIds) {
 }
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-const DEADLINE = /\b(?:due|back by|promised by)\s+(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+)?(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:\s+(\d{1,2}):(\d{2}))?/gi;
+const DEADLINE = /\b(?:due|back by|promised by|until)\s+(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\s+)?(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(?:\s+(\d{1,2}):(\d{2}))?/gi;
 
 /**
- * Every deadline the notes name: "(due Wed 18 Nov 11:37)", "back by …", "promised by …", in local time.
+ * Every deadline the notes name: "(due Wed 18 Nov 11:37)", "back by …", "promised by …", "until …", in local time.
  * A date without a year falls in the year that puts it nearest to now.
  */
 export function deadlines(notes, now) {
