@@ -1797,18 +1797,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: face, event, view) }
                 let next = index + 1 < shown.count ? shown[index + 1].memberOf : nil
-                // A copy has no session id, so a topic that folds shut does not fold it too.
-                content.add(item: view, title: face.title, sessionId: inWeek ? nil : face.id,
+                // A copy has an id of its own, so a topic that folds shut does not fold it too.
+                content.add(item: view, title: face.title, sessionId: inWeek ? weekCopyId(face.id) : face.id,
                             endsTopic: inWeek ? index == week.count - 1 : face.topic != nil && next != face.topic,
                             notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
             case .topic(let topic, let members) where inWeek:
                 let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
                 view.canReorder = false
-                view.onClick = { [weak self] in
-                    guard let self else { return }
-                    self.weekCollapsed.toggle()
-                    self.layoutStrips()
-                }
+                view.onClick = { [weak self] in self?.setWeekCollapsed(!topic.collapsed, members: members) }
                 content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }) {
                     "\(members.count) session\(members.count == 1 ? "" : "s") with something due before Monday"
                 }
@@ -1859,6 +1855,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var weekCollapsed: Bool {
         get { UserDefaults.standard.object(forKey: "thisWeekCollapsed") as? Bool ?? true }
         set { UserDefaults.standard.set(newValue, forKey: "thisWeekCollapsed") }
+    }
+
+    private func weekCopyId(_ id: String) -> String { "\(thisWeekTopicId):\(id)" }
+
+    /// Folds the This week folder open or shut with the same animation as a topic.
+    private func setWeekCollapsed(_ collapsed: Bool, members: [Face]) {
+        guard !isCollapsing else { return }
+        let copies = Set(members.map { weekCopyId($0.id) })
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.weekCollapsed = collapsed
+            self.layoutStrips(revealing: collapsed ? [] : copies)
+        }
+        guard collapsed else {
+            apply()
+            return
+        }
+        isCollapsing = true
+        var done: (() -> Void)? = apply
+        for strip in strips {
+            (strip.contentView as? StripView)?.animateOut(copies, done: done)
+            done = nil
+        }
     }
 
     /// A folder on top with a copy of every session that has something due this week, soonest first.
