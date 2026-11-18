@@ -1,14 +1,17 @@
 import { appendFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { restartArgs } from './sessions.js';
-import { closeIdleWindows, launchTerminal, quitTerminal, startClaude, terminalRunning } from './terminal.js';
+import { restartArgs, workingTabCount } from './sessions.js';
+import { closeIdleWindows, launchTerminal, listTabs, quitTerminal, startClaude, terminalRunning } from './terminal.js';
 
 const POLL_MS = 2000;
 const WAIT_MAX_MS = 60 * 60_000;
 const STOP_WAIT_MS = 15_000;
 // Terminal shows a dialog when a window still runs something else; the user answers it.
 const QUIT_WAIT_MS = 5 * 60_000;
-const START_GAP_MS = 400;
+// Every resumed session takes memory, and one with the prompt also works a turn; 35 at once can fill the memory of a laptop.
+const START_GAP_MS = 3000;
+const MAX_WORKING = 4;
+const SLOT_WAIT_MS = 2 * 60_000;
 const LAUNCH_WAIT_MS = 30_000;
 // A window opened while Terminal still starts up can take longer than one opened later.
 const START_TIMEOUT_MS = 30_000;
@@ -97,10 +100,16 @@ async function run({ wait, collect, log }) {
   await delay(2000);
 
   for (const target of targets) {
+    if (target.rearm) await waitForSlot();
     await startClaude(target.cwd, target.id, target.args, target.rearm ? REARM_PROMPT : '', START_TIMEOUT_MS).catch((error) => log(`could not resume ${target.id}: ${error.message}`));
     await delay(START_GAP_MS);
   }
   log(`resumed ${targets.length} sessions, ${targets.filter((target) => target.rearm).length} with the prompt to start their work again`);
+}
+
+async function waitForSlot() {
+  const by = Date.now() + SLOT_WAIT_MS;
+  while (Date.now() < by && workingTabCount(await listTabs().catch(() => '')) >= MAX_WORKING) await delay(1000);
 }
 
 /** A background shell of Claude Code runs as a shell child of its claude process; MCP servers do not. */

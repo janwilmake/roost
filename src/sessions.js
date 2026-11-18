@@ -369,3 +369,11 @@ export function restartArgs(command) {
   }
   return args;
 }
+
+// Claude Code starts the tab title with ✳ while idle, and with a turning half circle while it works.
+const WORKING_TITLE = /^[◐◓◑◒]/u;
+
+/** How many Terminal tabs show a Claude session that works now, from the raw tab list. */
+export function workingTabCount(tabOutput) {
+  return tabOutput.split('\n').slice(1).filter((row) => WORKING_TITLE.test(row.split('\t').slice(5).join('\t'))).length;
+}

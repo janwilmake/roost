@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs, workingTabCount } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 import { shellChildren } from '../src/restart.js';
 
@@ -285,4 +285,9 @@ test('a restart sees a background shell of a session, and not its MCP servers', 
   ]);
   assert.deepEqual(shellChildren(10, processes), [12]);
   assert.deepEqual(shellChildren(20, processes), []);
+});
+
+test('a working Claude tab starts its title with a half circle, an idle one with ✳', () => {
+  const output = ['true', '1\t1\tttys001\ttrue\ttrue\t◑ Roost', '2\t1\tttys002\tfalse\tfalse\t✳ MOZA', '3\t1\tttys003\tfalse\tfalse\tnpm run dev'].join('\n');
+  assert.equal(workingTabCount(output), 1);
 });
