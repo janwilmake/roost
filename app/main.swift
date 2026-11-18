@@ -1979,7 +1979,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         alert.messageText = "Restart \(count) Claude session\(count == 1 ? "" : "s")?"
+        let rearm = plan["rearm"] as? Int ?? 0
         var info = "Terminal quits, then opens each session again where it was. Sessions in screen, such as agents, keep running."
+        if rearm > 0 { info += " \(rearm) had background work, such as a shell, a loop or open items; they get a prompt to start it again." }
         if !busy.isEmpty { info += "\n\nWorking now: \(busy.joined(separator: ", ")). Restarting now stops their turn." }
         alert.informativeText = info
         if !busy.isEmpty { alert.addButton(withTitle: "Restart When Done") }

@@ -1,7 +1,7 @@
 import { appendFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import { restartArgs } from './sessions.js';
-import { closeIdleWindows, quitTerminal, startClaude, terminalRunning } from './terminal.js';
+import { closeIdleWindows, launchTerminal, quitTerminal, startClaude, terminalRunning } from './terminal.js';
 
 const POLL_MS = 2000;
 const WAIT_MAX_MS = 60 * 60_000;
@@ -9,6 +9,12 @@ const STOP_WAIT_MS = 15_000;
 // Terminal shows a dialog when a window still runs something else; the user answers it.
 const QUIT_WAIT_MS = 5 * 60_000;
 const START_GAP_MS = 400;
+const LAUNCH_WAIT_MS = 30_000;
+// A window opened while Terminal still starts up can take longer than one opened later.
+const START_TIMEOUT_MS = 30_000;
+export const REARM_PROMPT =
+  'Roost restarted Terminal, so this session was stopped and resumed. Its background shells, monitors, session crons and /loop wakeups are gone. ' +
+  'If this session had any of them running, start them again now, the same way as before. If none was running, end the turn without doing anything.';
 
 let running = false;
 
@@ -16,7 +22,7 @@ let running = false;
  * The Claude sessions that run in a Terminal tab, in strip order. A session in a detached `screen`, such as a cca agent,
  * survives a Terminal quit, so it is not one of them.
  */
-export function restartTargets({ live, processes }, order, titleOf) {
+export function restartTargets({ live, processes }, order, titleOf, hadWork) {
   const rank = new Map(order.map((id, index) => [id, index]));
   return live
     .filter(({ tab, screenName }) => tab && !screenName)
@@ -28,12 +34,15 @@ export function restartTargets({ live, processes }, order, titleOf) {
       windowId: tab.windowId,
       busy: file.status === 'busy',
       title: titleOf(file.sessionId),
+      // Crons and loop wakeups have no process, so the wip mark and the counts of the notes stand in for them.
+      shells: shellChildren(file.pid, processes),
+      rearm: shellChildren(file.pid, processes).length > 0 || hadWork(file),
     }))
     .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
 }
 
 export function restartPlan(targets) {
-  return { running, sessions: targets.length, busy: targets.filter((target) => target.busy).map((target) => target.title) };
+  return { running, sessions: targets.length, rearm: targets.filter((target) => target.rearm).length, busy: targets.filter((target) => target.busy).map((target) => target.title) };
 }
 
 /** Starts the restart and answers at once: the work goes on after Terminal, and the client that asked, have quit. */
@@ -68,6 +77,10 @@ async function run({ wait, collect, log }) {
   }
   const left = targets.filter(isAlive);
   if (left.length) log(`still running, resumed anyway: ${left.map((target) => target.id).join(' ')}`);
+  // A background shell runs in a process group of its own, so it can outlive its session; the resumed session starts it again.
+  const orphans = targets.flatMap((target) => target.shells).filter((pid) => isAlive({ pid }));
+  for (const pid of orphans) signalGroup(pid, 'SIGTERM');
+  if (orphans.length) log(`stopped ${orphans.length} background shells that outlived their session`);
 
   // From here every step goes on after an error: the sessions are stopped and must open again.
   await closeIdleWindows([...new Set(targets.map((target) => target.windowId))]).catch((error) => log(`could not close windows: ${error.message}`));
@@ -77,11 +90,22 @@ async function run({ wait, collect, log }) {
   // The sessions are stopped now, so they open again even when Terminal did not quit.
   if (await terminalRunning()) log('Terminal did not quit; the sessions open in the running Terminal');
 
+  // Terminal runs fully before the first window opens, so no `do script` waits on its start.
+  await launchTerminal().catch((error) => log(`could not launch Terminal: ${error.message}`));
+  const launchBy = Date.now() + LAUNCH_WAIT_MS;
+  while (!(await terminalRunning()) && Date.now() < launchBy) await delay(500);
+  await delay(2000);
+
   for (const target of targets) {
-    await startClaude(target.cwd, target.id, target.args).catch((error) => log(`could not resume ${target.id}: ${error.message}`));
+    await startClaude(target.cwd, target.id, target.args, target.rearm ? REARM_PROMPT : '', START_TIMEOUT_MS).catch((error) => log(`could not resume ${target.id}: ${error.message}`));
     await delay(START_GAP_MS);
   }
-  log(`resumed ${targets.length} sessions`);
+  log(`resumed ${targets.length} sessions, ${targets.filter((target) => target.rearm).length} with the prompt to start their work again`);
+}
+
+/** A background shell of Claude Code runs as a shell child of its claude process; MCP servers do not. */
+export function shellChildren(pid, processes) {
+  return [...processes.values()].filter((child) => child.ppid === pid && /^(?:\S*\/)?(?:zsh|bash|sh)\s/.test(child.command)).map((child) => child.pid);
 }
 
 function isAlive({ pid }) {
@@ -90,6 +114,14 @@ function isAlive({ pid }) {
     return true;
   } catch {
     return false;
+  }
+}
+
+function signalGroup(pid, signal) {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    signalPid(pid, signal);
   }
 }
 

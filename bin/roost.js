@@ -29,7 +29,7 @@ async function restartAll(flag) {
   const response = await fetch(SERVER, request).catch(() => null);
   if (!response) return fail('Roost is not running.');
   const result = await response.json();
-  if (response.ok) return console.log(`Restarting ${result.sessions} sessions${flag === '--wait' && result.busy.length ? ` once ${result.busy.length} working ones are done` : ''}. Log: ~/.roost/restart.log`);
+  if (response.ok) return console.log(`Restarting ${result.sessions} sessions, ${result.rearm} with a prompt to start their background work again${flag === '--wait' && result.busy.length ? ` once ${result.busy.length} working ones are done` : ''}. Log: ~/.roost/restart.log`);
   if (result.busy?.length) return fail(`${result.busy.length} session${result.busy.length === 1 ? " is" : "s are"} working: ${result.busy.join(', ')}.\nRun with --wait to restart once they are done, or --now to restart them anyway.`);
   fail(result.error);
 }

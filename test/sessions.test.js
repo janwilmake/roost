@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
+import { shellChildren } from '../src/restart.js';
 
 const NOW = 1_000_000;
 const STARTED = 'Tue Nov 10 10:42:38 2026';
@@ -272,4 +273,16 @@ test('a restart keeps the known flags and leaves out the first prompt and the ol
   assert.deepEqual(restartArgs('/Users/me/.local/bin/claude --chrome Goal: fix the mail'), ['--chrome']);
   assert.deepEqual(restartArgs('claude --model opus --permission-mode=plan -c'), ['--model', 'opus', '--permission-mode=plan']);
   assert.deepEqual(restartArgs('node server.js'), []);
+});
+
+test('a restart sees a background shell of a session, and not its MCP servers', () => {
+  const processes = new Map([
+    [10, { pid: 10, ppid: 1, command: 'claude --dangerously-skip-permissions' }],
+    [11, { pid: 11, ppid: 10, command: 'node /opt/mcp/server.js' }],
+    [12, { pid: 12, ppid: 10, command: '/bin/zsh -c source snapshot.sh && gate.sh --wait' }],
+    [20, { pid: 20, ppid: 1, command: 'claude' }],
+    [21, { pid: 21, ppid: 20, command: 'npx some-mcp' }],
+  ]);
+  assert.deepEqual(shellChildren(10, processes), [12]);
+  assert.deepEqual(shellChildren(20, processes), []);
 });

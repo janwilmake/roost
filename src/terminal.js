@@ -91,11 +91,15 @@ export async function focusTab(tab) {
   return parseBounds(stdout);
 }
 
-/** Opens a new Terminal window that runs Claude in the folder, resumes a session if given, and returns its bounds. */
-export async function startClaude(cwd, resumeId = '', args = ['--dangerously-skip-permissions']) {
-  const command = ['cd', quote(cwd), '&&', 'claude', ...args.map(quote), ...(resumeId ? ['--resume', quote(resumeId)] : [])].join(' ');
-  const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout: 5000 });
+/** Opens a new Terminal window that runs Claude in the folder, resumes a session and sends a first prompt if given, and returns its bounds. */
+export async function startClaude(cwd, resumeId = '', args = ['--dangerously-skip-permissions'], prompt = '', timeout = 5000) {
+  const command = ['cd', quote(cwd), '&&', 'claude', ...args.map(quote), ...(resumeId ? ['--resume', quote(resumeId)] : []), ...(prompt ? [quote(prompt)] : [])].join(' ');
+  const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout });
   return parseBounds(stdout);
+}
+
+export async function launchTerminal() {
+  await run('/usr/bin/open', ['-a', 'Terminal'], { timeout: 30_000 });
 }
 
 export async function closeIdleWindows(windowIds) {

@@ -355,7 +355,11 @@ async function createTopic(body) {
 
 async function restartSessions() {
   const titleOf = (id) => store.get(id).seenTitle || id.slice(0, 8);
-  return restartTargets(await loadLive(refreshTabs()), store.state.order, titleOf);
+  const hadWork = (file) => {
+    const saved = store.get(file.sessionId);
+    return file.status === 'shell' || saved.wip != null || inProgress(saved.notes) > 0 || waitingForUs(saved.notes) > 0 || waitingForTeam(saved.notes) > 0;
+  };
+  return restartTargets(await loadLive(refreshTabs()), store.state.order, titleOf, hadWork);
 }
 
 async function handleApi(req, url) {
