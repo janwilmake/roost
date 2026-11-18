@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 
 const NOW = 1_000_000;
@@ -265,4 +265,11 @@ test('deadlines sent by a tool are checked and kept as numbers', () => {
   assert.equal(validatePatch({ deadline: 1_800_000_000_000 }).deadline, 1_800_000_000_000);
   assert.equal(validatePatch({ deadline: null }).deadline, null);
   assert.throws(() => validatePatch({ deadline: 'friday' }));
+});
+
+test('a restart keeps the known flags and leaves out the first prompt and the old resume', () => {
+  assert.deepEqual(restartArgs('claude --dangerously-skip-permissions --resume 1234'), ['--dangerously-skip-permissions']);
+  assert.deepEqual(restartArgs('/Users/me/.local/bin/claude --chrome Goal: fix the mail'), ['--chrome']);
+  assert.deepEqual(restartArgs('claude --model opus --permission-mode=plan -c'), ['--model', 'opus', '--permission-mode=plan']);
+  assert.deepEqual(restartArgs('node server.js'), []);
 });

@@ -1950,9 +1950,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let view else { return }
             self.overview.toggle(faces: self.faces, topics: self.topics, beside: self.screenRect(of: view))
         })
+        menu.addItem(ActionItem("Restart All Sessions…") { [weak self] in self?.confirmRestartAll() })
         menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Roost") { NSApp.terminate(nil) })
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    /// Terminal quits and opens every Claude session in it again, for a Terminal setting that needs a fresh start.
+    private func confirmRestartAll() {
+        URLSession.shared.dataTask(with: serverURL.appendingPathComponent("api/restart-all")) { [weak self] data, _, _ in
+            let plan = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+            DispatchQueue.main.async { self?.askRestartAll(plan) }
+        }.resume()
+    }
+
+    private func askRestartAll(_ plan: [String: Any]) {
+        let count = plan["sessions"] as? Int ?? 0
+        let busy = plan["busy"] as? [String] ?? []
+        let alert = NSAlert()
+        if plan["running"] as? Bool == true {
+            alert.messageText = "A restart is already running."
+            alert.runModal()
+            return
+        }
+        guard count > 0 else {
+            alert.messageText = "No Claude session runs in a Terminal tab."
+            alert.runModal()
+            return
+        }
+        alert.messageText = "Restart \(count) Claude session\(count == 1 ? "" : "s")?"
+        var info = "Terminal quits, then opens each session again where it was. Sessions in screen, such as agents, keep running."
+        if !busy.isEmpty { info += "\n\nWorking now: \(busy.joined(separator: ", ")). Restarting now stops their turn." }
+        alert.informativeText = info
+        if !busy.isEmpty { alert.addButton(withTitle: "Restart When Done") }
+        alert.addButton(withTitle: "Restart Now")
+        alert.addButton(withTitle: "Cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        let answer = alert.runModal()
+        let first = NSApplication.ModalResponse.alertFirstButtonReturn
+        let second = NSApplication.ModalResponse(rawValue: first.rawValue + 1)
+        if busy.isEmpty, answer == first { post("api/restart-all", ["force": true]) }
+        if !busy.isEmpty, answer == first { post("api/restart-all", ["wait": true]) }
+        if !busy.isEmpty, answer == second { post("api/restart-all", ["force": true]) }
     }
 
     /// The menu waits for the folder list and the recent sessions, so it opens at the tile rather than at the click event.

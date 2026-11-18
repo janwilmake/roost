@@ -27,6 +27,7 @@ import {
   deadlines,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
+import { restartAll, restartPlan, restartTargets } from './restart.js';
 import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
 
 const PORT = Number(process.env.ROOST_PORT ?? 4777);
@@ -88,7 +89,7 @@ async function loadLive(tabSource = currentTabs()) {
   const { terminalFront, tabs } = parseTabs(tabOutput.stdout);
   const live = files.filter((file) => isSameProcess(file, processes)).map((file) => ({ file, ...locate(file.pid, processes, tabs) }));
   knownTabs = new Map(live.filter(({ tab }) => tab).map(({ file, tab }) => [file.sessionId, tab]));
-  return { live, terminalFront, terminalFailed: Boolean(tabOutput.failed) };
+  return { live, processes, terminalFront, terminalFailed: Boolean(tabOutput.failed) };
 }
 
 async function snapshot() {
@@ -352,6 +353,11 @@ async function createTopic(body) {
   return { status: 200, body: { id: topic.id, ...(await freshSnapshotAfterWrite()) } };
 }
 
+async function restartSessions() {
+  const titleOf = (id) => store.get(id).seenTitle || id.slice(0, 8);
+  return restartTargets(await loadLive(refreshTabs()), store.state.order, titleOf);
+}
+
 async function handleApi(req, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') return { status: 200, body: { ok: true } };
   if (req.method === 'GET' && url.pathname === '/api/sessions') {
@@ -365,6 +371,8 @@ async function handleApi(req, url) {
   if (req.method === 'GET' && url.pathname === '/api/flash') return { status: 200, body: { bounds: await nextFlash() } };
   if (req.method === 'GET' && url.pathname === '/api/locations') return { status: 200, body: { locations: await topLocations() } };
   if (req.method === 'GET' && url.pathname === '/api/recent') return { status: 200, body: { sessions: await recentSessions() } };
+
+  if (req.method === 'GET' && url.pathname === '/api/restart-all') return { status: 200, body: restartPlan(await restartSessions()) };
 
   if (req.method !== 'POST') return { status: 404, body: { error: 'Not found' } };
   const body = await readJson(req);
@@ -380,6 +388,10 @@ async function handleApi(req, url) {
   if (url.pathname === '/api/topics') return createTopic(body);
   if (url.pathname === '/api/start') return startSession(body.cwd);
   if (url.pathname === '/api/resume') return resumeSession(body.id);
+  if (url.pathname === '/api/restart-all') {
+    const options = { wait: body.wait === true, force: body.force === true, collect: restartSessions, logFile: join(HOME, 'restart.log') };
+    return restartAll(await restartSessions(), options);
+  }
 
   const topicRoute = /^\/api\/topics\/([\w-]+)(\/delete)?$/.exec(url.pathname);
   if (topicRoute) {

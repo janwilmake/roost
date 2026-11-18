@@ -29,7 +29,8 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
 | Click the rooster         | The overview opens: every session with its title, status and notes.          |
-| Drag the rooster          | The strip moves on every screen. Right-click it to quit.                      |
+| Drag the rooster          | The strip moves on every screen.                                              |
+| Right-click the rooster   | Overview, Restart All Sessions…, Quit Roost.                                  |
 | Click the + tile          | Start a session in a frequent folder or a new one, resume a recent one, or wake a snoozed one. |
 
 Each strip fills the height of its screen: its tiles share that height, counted as at least eight tiles, so a bigger screen gets bigger tiles. When the tiles would get smaller than 22 points, the strip shows what fits, the way the Dock does. The tile under the cursor still grows.
@@ -41,6 +42,8 @@ Roost reads every deadline in the notes: `(due Wed 18 Nov 17:00)`, `(due 20 Nov)
 The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
 
 The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
+
+**Restart All Sessions…** quits Terminal and opens every Claude session in it again, each in its own window with `claude --resume`. Use it for a Terminal setting that works only after a fresh start. The sessions keep their place, title, picture and notes, because Roost keeps those by session id. A session in a detached `screen`, such as a `cca` agent, keeps running and is not touched. When a session is working, Roost asks: restart when the working sessions are done, or now, which stops their turn. A restart carries `--dangerously-skip-permissions`, `--chrome`, `--model` and similar flags over; the first prompt of a session is not sent again. Terminal asks before it quits when another window still runs something; the restart waits for that answer, at most 5 minutes. The same from a shell or a session: `roost restart-all` (refuses while a session works), `roost restart-all --wait` or `roost restart-all --now`. The log is `~/.roost/restart.log`.
 
 A session joins a topic when you drop it directly under the topic tile, or between two of its sessions. Use Rename with an empty title to return to the automatic title. For a `cca` agent with no viewer window, Roost opens one with `screen -r`.
 

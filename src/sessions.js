@@ -350,3 +350,22 @@ export function deadlines(notes, now) {
   }
   return out.sort((a, b) => a.at - b.at);
 }
+
+// The flags a restart carries over. `ps` joins the arguments with spaces, so a first prompt cannot be told apart
+// from other words; every argument outside these lists is left out.
+const KEPT_FLAGS = new Set(['--dangerously-skip-permissions', '--allow-dangerously-skip-permissions', '--chrome', '--no-chrome', '--verbose', '--ide', '--strict-mcp-config']);
+const KEPT_VALUE_FLAGS = new Set(['--model', '--permission-mode', '--agent', '--fallback-model', '--settings', '--mcp-config', '--add-dir', '--plugin-dir', '--setting-sources']);
+
+/** The flags to start a session with again, read from the `ps` command line of its claude process. */
+export function restartArgs(command) {
+  const words = command.trim().split(/\s+/);
+  const start = words.findIndex((word) => /(?:^|\/)claude$/.test(word));
+  const args = [];
+  for (let i = start + 1; start >= 0 && i < words.length; i++) {
+    const [flag] = words[i].split('=');
+    if (KEPT_FLAGS.has(words[i])) args.push(words[i]);
+    else if (KEPT_VALUE_FLAGS.has(flag) && words[i].includes('=')) args.push(words[i]);
+    else if (KEPT_VALUE_FLAGS.has(flag) && i + 1 < words.length && !words[i + 1].startsWith('-')) args.push(words[i], words[++i]);
+  }
+  return args;
+}

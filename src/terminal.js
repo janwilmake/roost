@@ -43,17 +43,31 @@ on run argv
 end run
 `;
 
-const START_CLAUDE = `
+const RUN_COMMAND = `
 on run argv
-  set command to "cd " & quoted form of (item 1 of argv) & " && claude --dangerously-skip-permissions"
-  if (item 2 of argv) is not "" then set command to command & " --resume " & quoted form of (item 2 of argv)
   tell application "Terminal"
-    do script command
+    do script (item 1 of argv)
     activate
     return bounds of front window
   end tell
 end run
 `;
+
+// A window that only holds idle shells closes without Terminal asking first.
+const CLOSE_IDLE_WINDOWS = `
+on run argv
+  tell application "Terminal"
+    repeat with windowId in argv
+      try
+        set w to window id (windowId as integer)
+        if (busy of every tab of w) does not contain true then close w
+      end try
+    end repeat
+  end tell
+end run
+`;
+
+const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 
 export async function listProcesses() {
   const { stdout } = await run('/bin/ps', ['-axww', '-o', 'pid=,ppid=,tty=,lstart=,command='], { maxBuffer: 16 * 1024 * 1024 });
@@ -78,9 +92,25 @@ export async function focusTab(tab) {
 }
 
 /** Opens a new Terminal window that runs Claude in the folder, resumes a session if given, and returns its bounds. */
-export async function startClaude(cwd, resumeId = '') {
-  const { stdout } = await run('/usr/bin/osascript', ['-e', START_CLAUDE, cwd, resumeId], { timeout: 5000 });
+export async function startClaude(cwd, resumeId = '', args = ['--dangerously-skip-permissions']) {
+  const command = ['cd', quote(cwd), '&&', 'claude', ...args.map(quote), ...(resumeId ? ['--resume', quote(resumeId)] : [])].join(' ');
+  const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout: 5000 });
   return parseBounds(stdout);
+}
+
+export async function closeIdleWindows(windowIds) {
+  if (windowIds.length) await run('/usr/bin/osascript', ['-e', CLOSE_IDLE_WINDOWS, ...windowIds.map(String)], { timeout: 10_000 });
+}
+
+/** Asks Terminal to quit. When a window still runs something, Terminal asks the user first, so this does not wait for the answer. */
+export async function quitTerminal() {
+  await run('/usr/bin/osascript', ['-e', 'tell application "Terminal" to quit'], { timeout: 5000 }).catch(() => {});
+}
+
+export async function terminalRunning() {
+  // An answer that fails counts as running, so a restart waits rather than opening sessions in a Terminal that quits.
+  const answer = await run('/usr/bin/osascript', ['-e', 'application "Terminal" is running'], { timeout: 5000 }).catch(() => ({ stdout: 'true' }));
+  return answer.stdout.trim() === 'true';
 }
 
 /** Opens a window attached to the screen session and returns its bounds. */
