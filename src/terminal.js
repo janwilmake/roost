@@ -60,16 +60,13 @@ end run
 
 // A window that only holds idle shells closes without Terminal asking first.
 const CLOSE_IDLE_WINDOWS = `
-on run argv
-  tell application "Terminal"
-    repeat with windowId in argv
-      try
-        set w to window id (windowId as integer)
-        if (busy of every tab of w) does not contain true then close w
-      end try
-    end repeat
-  end tell
-end run
+tell application "Terminal"
+  repeat with w in (get every window)
+    try
+      if (busy of every tab of w) does not contain true then close w
+    end try
+  end repeat
+end tell
 `;
 
 const quote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
@@ -107,8 +104,8 @@ export async function launchTerminal() {
   await run('/usr/bin/open', ['-a', 'Terminal'], { timeout: 30_000 });
 }
 
-export async function closeIdleWindows(windowIds) {
-  if (windowIds.length) await run('/usr/bin/osascript', ['-e', CLOSE_IDLE_WINDOWS, ...windowIds.map(String)], { timeout: 10_000 });
+export async function closeIdleWindows() {
+  await run('/usr/bin/osascript', ['-e', CLOSE_IDLE_WINDOWS], { timeout: 20_000 });
 }
 
 /** Asks Terminal to quit. When a window still runs something, Terminal asks the user first, so this does not wait for the answer. */

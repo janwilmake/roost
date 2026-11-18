@@ -27,7 +27,7 @@ import {
   deadlines,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
-import { restartAll, restartPlan, restartTargets } from './restart.js';
+import { restartAll, restartPlan, restartScene } from './restart.js';
 import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
 
 const PORT = Number(process.env.ROOST_PORT ?? 4777);
@@ -89,7 +89,7 @@ async function loadLive(tabSource = currentTabs()) {
   const { terminalFront, tabs } = parseTabs(tabOutput.stdout);
   const live = files.filter((file) => isSameProcess(file, processes)).map((file) => ({ file, ...locate(file.pid, processes, tabs) }));
   knownTabs = new Map(live.filter(({ tab }) => tab).map(({ file, tab }) => [file.sessionId, tab]));
-  return { live, processes, terminalFront, terminalFailed: Boolean(tabOutput.failed) };
+  return { live, processes, tabs, terminalFront, terminalFailed: Boolean(tabOutput.failed) };
 }
 
 async function snapshot() {
@@ -359,7 +359,11 @@ async function restartSessions() {
     const saved = store.get(file.sessionId);
     return file.status === 'shell' || saved.wip != null || inProgress(saved.notes) > 0 || waitingForUs(saved.notes) > 0 || waitingForTeam(saved.notes) > 0;
   };
-  return restartTargets(await loadLive(refreshTabs()), store.state.order, titleOf, hadWork);
+  return restartScene(await loadLive(refreshTabs()), store.state.order, titleOf, hadWork);
+}
+
+async function liveSessionIds() {
+  return new Set((await loadLive(refreshTabs())).live.map(({ file }) => file.sessionId));
 }
 
 async function handleApi(req, url) {
@@ -393,7 +397,7 @@ async function handleApi(req, url) {
   if (url.pathname === '/api/start') return startSession(body.cwd);
   if (url.pathname === '/api/resume') return resumeSession(body.id);
   if (url.pathname === '/api/restart-all') {
-    const options = { wait: body.wait === true, force: body.force === true, collect: restartSessions, logFile: join(HOME, 'restart.log') };
+    const options = { wait: body.wait === true, force: body.force === true, collect: restartSessions, liveIds: liveSessionIds, logFile: join(HOME, 'restart.log') };
     return restartAll(await restartSessions(), options);
   }
 

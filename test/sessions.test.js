@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs, workingTabCount } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
-import { shellChildren } from '../src/restart.js';
+import { otherTabs, shellChildren } from '../src/restart.js';
 
 const NOW = 1_000_000;
 const STARTED = 'Tue Nov 10 10:42:38 2026';
@@ -290,4 +290,21 @@ test('a restart sees a background shell of a session, and not its MCP servers', 
 test('a working Claude tab starts its title with a half circle, an idle one with ✳', () => {
   const output = ['true', '1\t1\tttys001\ttrue\ttrue\t◑ Roost', '2\t1\tttys002\tfalse\tfalse\t✳ MOZA', '3\t1\tttys003\tfalse\tfalse\tnpm run dev'].join('\n');
   assert.equal(workingTabCount(output), 1);
+});
+
+test('a restart lists the other busy tabs, and tells a screen viewer apart', () => {
+  const processes = new Map([
+    [1, { pid: 1, ppid: 0, tty: 'ttys001', command: 'login -pf me' }],
+    [2, { pid: 2, ppid: 1, tty: 'ttys001', command: '-zsh' }],
+    [3, { pid: 3, ppid: 2, tty: 'ttys001', command: 'claude --dangerously-skip-permissions' }],
+    [4, { pid: 4, ppid: 0, tty: 'ttys002', command: 'login -pf me' }],
+    [5, { pid: 5, ppid: 4, tty: 'ttys002', command: '-zsh' }],
+    [6, { pid: 6, ppid: 5, tty: 'ttys002', command: 'npm run dev' }],
+    [7, { pid: 7, ppid: 0, tty: 'ttys003', command: '/usr/bin/screen -r agent-1' }],
+  ]);
+  const tabs = ['ttys001', 'ttys002', 'ttys003'].map((tty) => ({ tty, title: 'Terminal' }));
+  assert.deepEqual(otherTabs({ tabs, processes }, [{ tty: 'ttys001' }]), [
+    { tty: 'ttys002', pids: [5, 6], command: 'npm run dev', viewer: false },
+    { tty: 'ttys003', pids: [7], command: '/usr/bin/screen -r agent-1', viewer: true },
+  ]);
 });

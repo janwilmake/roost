@@ -1983,6 +1983,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var info = "Terminal quits, then opens each session again where it was. Sessions in screen, such as agents, keep running."
         if rearm > 0 { info += " \(rearm) had background work, such as a shell, a loop or open items; they get a prompt to start it again." }
         if !busy.isEmpty { info += "\n\nWorking now: \(busy.joined(separator: ", ")). Restarting now stops their turn." }
+        let others = plan["others"] as? [String] ?? []
+        if !others.isEmpty { info += "\n\nThese other tabs close, and what runs in them stops:\n" + others.map { "• \($0)" }.joined(separator: "\n") }
+        let viewers = plan["viewers"] as? Int ?? 0
+        if viewers > 0 { info += "\n\n\(viewers) agent viewer tab\(viewers == 1 ? "" : "s") close; the agents keep running." }
         alert.informativeText = info
         if !busy.isEmpty { alert.addButton(withTitle: "Restart When Done") }
         alert.addButton(withTitle: "Restart Now")
