@@ -2,7 +2,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseBounds } from './sessions.js';
 
-const run = promisify(execFile);
+const execFileAsync = promisify(execFile);
+// Roost can be launched from inside a Claude Code session. Terminal and every session in it would then inherit
+// that session's CLAUDE* variables, and Claude Code takes a session started with them for a child session that it keeps
+// out of ~/.claude/sessions, so Roost could not see it.
+const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('CLAUDE')));
+const run = (file, args, options = {}) => execFileAsync(file, args, { env, ...options });
 
 // One bulk request per property: asking tab by tab takes seconds with a dozen windows.
 const LIST_TABS = `
