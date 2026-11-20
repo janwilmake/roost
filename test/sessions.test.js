@@ -59,7 +59,7 @@ test('parseTabs reads the AppleScript output', () => {
 test('locate finds the tab of a plain terminal session', () => {
   const processes = parseProcesses(ps([[10, 1, 'ttys005', 'claude']]));
   const tab = { tty: 'ttys005', windowId: 1, index: 1 };
-  assert.deepEqual(locate(10, processes, [tab]), { tab, screenName: null });
+  assert.deepEqual(locate(10, processes, [tab]), { tab, screenName: null, jobId: null });
 });
 
 const SCREEN_TREE = [
@@ -71,12 +71,20 @@ const SCREEN_TREE = [
 test('locate finds the viewer tab of a cca agent', () => {
   const processes = parseProcesses(ps([...SCREEN_TREE, [60, 2, 'ttys007', '/usr/bin/screen -r agent-3']]));
   const tab = { tty: 'ttys007', windowId: 2, index: 1 };
-  assert.deepEqual(locate(52, processes, [tab]), { tab, screenName: 'agent-3' });
+  assert.deepEqual(locate(52, processes, [tab]), { tab, screenName: 'agent-3', jobId: null });
 });
 
 test('locate reports a cca agent with no viewer', () => {
   const processes = parseProcesses(ps([...SCREEN_TREE, [60, 2, 'ttys007', '/usr/bin/screen -r agent-30']]));
-  assert.deepEqual(locate(52, processes, [{ tty: 'ttys007', windowId: 2, index: 1 }]), { tab: null, screenName: 'agent-3' });
+  assert.deepEqual(locate(52, processes, [{ tty: 'ttys007', windowId: 2, index: 1 }]), { tab: null, screenName: 'agent-3', jobId: null });
+});
+
+test('locate finds the tab that attaches to a background session', () => {
+  const job = [80, 79, 'ttys042', '/Users/x/.local/share/claude/versions/2.1.328 --session-id e5 --fork-session'];
+  const processes = parseProcesses(ps([job, [90, 89, 'ttys009', 'claude attach e5469e7e']]));
+  const tab = { tty: 'ttys009', windowId: 3, index: 1 };
+  assert.deepEqual(locate(80, processes, [tab], 'e5469e7e'), { tab, screenName: null, jobId: 'e5469e7e' });
+  assert.deepEqual(locate(80, processes, [], 'e5469e7e'), { tab: null, screenName: null, jobId: 'e5469e7e' });
 });
 
 test('a shell that only mentions screen in its arguments is not a screen session', () => {
@@ -84,7 +92,7 @@ test('a shell that only mentions screen in its arguments is not a screen session
     [70, 1, '??', "/bin/zsh -c eval '/usr/bin/screen -dmS roost-test /bin/sleep 9'"],
     [71, 70, '??', 'claude'],
   ]));
-  assert.deepEqual(locate(71, processes, []), { tab: null, screenName: null });
+  assert.deepEqual(locate(71, processes, []), { tab: null, screenName: null, jobId: null });
 });
 
 test('history gives folders by session count and sessions by last use, without agent slots', () => {

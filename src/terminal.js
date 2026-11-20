@@ -100,6 +100,13 @@ export async function startClaude(cwd, resumeId = '', args = ['--dangerously-ski
   return parseBounds(stdout);
 }
 
+/** Opens a new Terminal window that attaches to a background Claude session, and returns its bounds. */
+export async function attachBackground(cwd, jobId) {
+  const command = ['cd', quote(cwd), '&&', 'claude', 'attach', quote(jobId)].join(' ');
+  const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout: 5000 });
+  return parseBounds(stdout);
+}
+
 export async function launchTerminal() {
   await run('/usr/bin/open', ['-a', 'Terminal'], { timeout: 30_000 });
 }

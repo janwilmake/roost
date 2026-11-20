@@ -24,6 +24,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | ------------------------- | ----------------------------------------------------------------------------- |
 | Hover a tile              | It grows like the Dock. A label shows the title, status, folder and times.    |
 | Click a session           | Its Terminal window comes forward and flashes an orange border.               |
+| Click a background session | A Terminal window opens that runs `claude attach <job>`. Later clicks bring it forward. |
 | Drag a tile               | It moves to a new place in the priority order. New sessions start at the end. |
 | Right-click a session     | Open, Rename, Mark as Seen, Work in Progress, Snooze or Wake, Move to Topic.  |
 | Click a topic             | It expands or collapses.                                                      |

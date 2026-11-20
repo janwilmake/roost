@@ -28,7 +28,7 @@ import {
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { restartAll, restartPlan, restartScene } from './restart.js';
-import { focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
+import { attachBackground, focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
 
 const PORT = Number(process.env.ROOST_PORT ?? 4777);
 const HOME = process.env.ROOST_HOME ?? join(homedir(), '.roost');
@@ -87,7 +87,7 @@ async function loadLive(tabSource = currentTabs()) {
   const [files, psOutput, tabOutput] = await Promise.all([readSessionFiles(SESSIONS_DIR), listProcesses(), tabSource]);
   const processes = parseProcesses(psOutput);
   const { terminalFront, tabs } = parseTabs(tabOutput.stdout);
-  const live = files.filter((file) => isSameProcess(file, processes)).map((file) => ({ file, ...locate(file.pid, processes, tabs) }));
+  const live = files.filter((file) => isSameProcess(file, processes)).map((file) => ({ file, ...locate(file.pid, processes, tabs, file.kind === 'bg' ? file.jobId : null) }));
   knownTabs = new Map(live.filter(({ tab }) => tab).map(({ file, tab }) => [file.sessionId, tab]));
   return { live, processes, tabs, terminalFront, terminalFailed: Boolean(tabOutput.failed) };
 }
@@ -239,8 +239,10 @@ async function findLive(id) {
 async function openSession(id) {
   const session = await findLive(id);
   if (!session) return { status: 404, body: { error: 'This session has ended.' } };
-  if (!session.tab && !session.screenName) return { status: 409, body: { error: 'This session is not in a Terminal window.' } };
-  return markOpened(id, session.tab ? await focusTab(session.tab) : await openViewer(session.screenName));
+  if (session.tab) return markOpened(id, await focusTab(session.tab));
+  if (session.jobId) return markOpened(id, await attachBackground(session.file.cwd, session.jobId));
+  if (session.screenName) return markOpened(id, await openViewer(session.screenName));
+  return { status: 409, body: { error: 'This session is not in a Terminal window.' } };
 }
 
 async function markOpened(id, bounds) {

@@ -104,15 +104,26 @@ export function cleanTitle(title) {
   return title.replace(/^[^\p{L}\p{N}]+/u, '').trim();
 }
 
-/** Finds where a session is shown: its own tab, or the viewer of its detached `screen`. */
-export function locate(pid, processes, tabs) {
+/** Finds where a session is shown: its own tab, the viewer of its detached `screen`, or the tab that attaches to its background job. */
+export function locate(pid, processes, tabs, jobId = null) {
   const process = processes.get(pid);
-  if (!process) return { tab: null, screenName: null };
+  if (!process) return { tab: null, screenName: null, jobId: null };
   const tab = tabs.find((candidate) => candidate.tty === process.tty);
-  if (tab) return { tab, screenName: null };
+  if (tab) return { tab, screenName: null, jobId: null };
+  if (jobId) return { tab: findAttachTab(jobId, processes, tabs), screenName: null, jobId };
   const screenName = findScreenName(pid, processes);
-  if (!screenName) return { tab: null, screenName: null };
-  return { tab: findViewerTab(screenName, processes, tabs), screenName };
+  if (!screenName) return { tab: null, screenName: null, jobId: null };
+  return { tab: findViewerTab(screenName, processes, tabs), screenName, jobId: null };
+}
+
+function findAttachTab(jobId, processes, tabs) {
+  const attach = new RegExp(`(?:^|/)claude\\s+attach\\s+${jobId.replace(/[.-]/g, '\\$&')}(?:\\s|$)`);
+  for (const process of processes.values()) {
+    if (!attach.test(process.command)) continue;
+    const tab = tabs.find((candidate) => candidate.tty === process.tty);
+    if (tab) return tab;
+  }
+  return null;
 }
 
 function findScreenName(pid, processes) {
