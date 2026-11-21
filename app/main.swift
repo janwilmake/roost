@@ -1413,7 +1413,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         content.add(item: plus, title: "New Session") { "Start Claude in a folder" }
         (panel.contentView as? StripView)?.handOver(to: content)
         panel.contentView = content
-        panel.orderFrontRegardless()
+        showUnlessFullscreen(panel, on: screen)
+    }
+
+    /// A fullscreen video or app covers its screen, so the strip on that screen steps aside until it leaves.
+    private func showUnlessFullscreen(_ panel: NSPanel, on screen: NSScreen) {
+        if isFullscreen(screen) { panel.orderOut(nil) } else if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    private func hideOverFullscreen() {
+        for (panel, screen) in zip(strips, NSScreen.screens) { showUnlessFullscreen(panel, on: screen) }
+    }
+
+    /// True when a normal window of another app fills the whole screen, menu bar included.
+    private func isFullscreen(_ screen: NSScreen) -> Bool {
+        guard let primary = NSScreen.screens.first,
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let frame = screen.frame
+        let target = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+        let me = ProcessInfo.processInfo.processIdentifier
+        return windows.contains { window in
+            guard (window[kCGWindowLayer as String] as? Int) == 0, (window[kCGWindowOwnerPID as String] as? Int32) != me,
+                let bounds = window[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: bounds)
+            else { return false }
+            return rect == target
+        }
     }
 
     private var summary: String {
@@ -1888,7 +1913,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if isUp {
                 self.pollFaces()
-                Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.pollFaces() }
+                Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                    self?.pollFaces()
+                    self?.hideOverFullscreen()
+                }
+                NSWorkspace.shared.notificationCenter.addObserver(
+                    forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+                ) { [weak self] _ in self?.hideOverFullscreen() }
                 // Switching apps moves the border between full and faint; ask at once instead of at the next poll.
                 NSWorkspace.shared.notificationCenter.addObserver(
                     forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
