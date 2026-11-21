@@ -83,6 +83,10 @@ export function validatePatch(body) {
     if (body.notes !== null && (typeof body.notes !== 'string' || body.notes.length > LIMITS.notes)) throw new Error('Bad notes');
     patch.notes = body.notes === null ? null : body.notes.trim();
   }
+  if ('color' in body) {
+    if (body.color !== null && !(typeof body.color === 'string' && /^#[0-9a-f]{6}$/i.test(body.color))) throw new Error('Bad color');
+    patch.color = body.color;
+  }
   if ('photo' in body) {
     const valid = body.photo === null || (typeof body.photo === 'string' && body.photo.length <= LIMITS.photo && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(body.photo));
     if (!valid) throw new Error('Bad photo');

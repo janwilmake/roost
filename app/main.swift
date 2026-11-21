@@ -127,6 +127,8 @@ struct Face {
     let status: String
     let emoji: String
     let photo: String?
+    /// The tile's background, which the session's Terminal window shares so the two match at a glance.
+    let color: NSColor?
     let folder: String
     let screenName: String?
     let waitingFor: String?
@@ -160,6 +162,7 @@ struct Face {
         autoTitle = json["autoTitle"] as? String ?? ""
         emoji = json["emoji"] as? String ?? ""
         photo = json["photo"] as? String
+        color = (json["color"] as? String).flatMap(hexColor)
         folder = json["folder"] as? String ?? ""
         screenName = json["screenName"] as? String
         waitingFor = json["waitingFor"] as? String
@@ -183,7 +186,7 @@ struct Face {
 
     var dueThisWeek: [Deadline] { deadlines.filter { thisWeek().contains(Date(timeIntervalSince1970: $0.at / 1000)) } }
 
-    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")|\(deadline ?? 0)" }
+    var signature: String { "\(id)|\(status)|\(emoji)|\(title)|\(since ?? 0)|\(topic ?? "")|\(photo?.hashValue ?? 0)|\(color?.description ?? "")|\(notes.hashValue)|\(waiting)|\(team)|\(wip ?? "")|\(front ?? "")|\(deadline ?? 0)" }
 
     var image: NSImage? {
         guard let base64 = photo?.split(separator: ",").last, let data = Data(base64Encoded: String(base64)) else { return nil }
@@ -909,7 +912,7 @@ final class FaceView: TileView {
         let inner = bounds.insetBy(dx: 1, dy: 1)
         NSGraphicsContext.saveGraphicsState()
         tilePath(inner).addClip()
-        Palette.tile.setFill()
+        (face.color ?? Palette.tile).setFill()
         inner.fill()
         let fraction: CGFloat = face.status == "snoozed" ? 0.4 : 1
         if let image {
@@ -923,6 +926,11 @@ final class FaceView: TileView {
     }
 }
 
+func hexColor(_ hex: String) -> NSColor? {
+    guard hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
+    return NSColor(srgbRed: CGFloat(value >> 16 & 0xff) / 255, green: CGFloat(value >> 8 & 0xff) / 255, blue: CGFloat(value & 0xff) / 255, alpha: 1)
+}
+
 func drawEmoji(_ emoji: String, in rect: NSRect) {
     let text = NSAttributedString(string: emoji, attributes: [.font: NSFont.systemFont(ofSize: rect.height * 0.6)])
     let size = text.size()
@@ -931,11 +939,11 @@ func drawEmoji(_ emoji: String, in rect: NSRect) {
 
 /// A folder tile with a small preview of its first four sessions.
 final class TopicView: TileView {
-    private let previews: [(image: NSImage?, emoji: String)]
+    private let previews: [(image: NSImage?, emoji: String, color: NSColor?)]
 
     /// An open topic shows its sessions beside it, so only a closed one carries their border.
     init(frame: NSRect, members: [Face], collapsed: Bool) {
-        previews = members.prefix(4).map { ($0.image, $0.emoji) }
+        previews = members.prefix(4).map { ($0.image, $0.emoji, $0.color) }
         let statuses = members.map(\.status)
         let waiting = members.filter { $0.status != "snoozed" && $0.status != "wip" }.reduce(0) { $0 + $1.waiting }
         let status = ["needs-me", "working", "wip", "shell"].first(where: statuses.contains) ?? "quiet"
@@ -961,7 +969,7 @@ final class TopicView: TileView {
                 y: inner.maxY - (gap + cell) * CGFloat(index / 2 + 1), width: cell, height: cell)
             NSGraphicsContext.saveGraphicsState()
             tilePath(rect).addClip()
-            Palette.tile.setFill()
+            (preview.color ?? Palette.tile).setFill()
             rect.fill()
             if let image = preview.image {
                 image.draw(in: rect)

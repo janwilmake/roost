@@ -165,6 +165,7 @@ async function snapshot() {
         snoozeRules: saved.snoozeRules ?? [],
         emoji: saved.emoji || defaultAvatar(id),
         photo: saved.photo ?? null,
+        color: saved.color ?? null,
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
         waiting,

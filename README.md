@@ -185,6 +185,13 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
   -d '{"emoji":"🧪","photo":null}' http://127.0.0.1:4777/api/sessions/<id>
 ```
 
+Set a background color for an emoji tile, as `#rrggbb`. A dark color keeps the emoji clear, and the same color on the session's Terminal window makes the two easy to match:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \
+  -d '{"color":"#3c1612"}' http://127.0.0.1:4777/api/sessions/<id>
+```
+
 Set a photo. Crop it to a square first if it is not square. The strip shows it at up to 80 points, so 256 pixels stays sharp on a Retina screen:
 
 ```bash

@@ -139,6 +139,9 @@ test('topic fields are validated', () => {
   assert.throws(() => validateTopicPatch({ collapsed: 'yes' }));
   assert.deepEqual(validatePatch({ topic: null }), { topic: null });
   assert.throws(() => validatePatch({ topic: 5 }));
+  assert.deepEqual(validatePatch({ color: '#3c1612' }), { color: '#3c1612' });
+  assert.deepEqual(validatePatch({ color: null }), { color: null });
+  assert.throws(() => validatePatch({ color: 'red' }));
 });
 
 test('validatePatch keeps only known fields and rejects bad values', () => {
