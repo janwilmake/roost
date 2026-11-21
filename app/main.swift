@@ -407,7 +407,7 @@ func topicDetail(_ members: [Face], collapsed: Bool) -> String {
 func makeOverlayPanel(frame: NSRect) -> NSPanel {
     let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
     panel.level = .statusBar
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+    panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
     panel.isOpaque = false
     panel.backgroundColor = .clear
     panel.hasShadow = false
