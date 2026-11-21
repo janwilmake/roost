@@ -1425,19 +1425,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         for (panel, screen) in zip(strips, NSScreen.screens) { showUnlessFullscreen(panel, on: screen) }
     }
 
-    /// True when a normal window of another app fills the whole screen, menu bar included.
+    /// True when a normal window of another app fills the screen. On a Mac with a notch, a fullscreen window stops below the menu bar.
     private func isFullscreen(_ screen: NSScreen) -> Bool {
         guard let primary = NSScreen.screens.first,
             let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
         else { return false }
         let frame = screen.frame
-        let target = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+        let whole = CGRect(x: frame.minX, y: primary.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
+        let notch = screen.safeAreaInsets.top
         let me = ProcessInfo.processInfo.processIdentifier
         return windows.contains { window in
             guard (window[kCGWindowLayer as String] as? Int) == 0, (window[kCGWindowOwnerPID as String] as? Int32) != me,
                 let bounds = window[kCGWindowBounds as String] as? NSDictionary, let rect = CGRect(dictionaryRepresentation: bounds)
             else { return false }
-            return rect == target
+            let spansWidth = rect.minX == whole.minX && rect.width == whole.width && rect.maxY == whole.maxY
+            return rect == whole || (notch > 0 && spansWidth && abs(rect.minY - whole.minY - notch) <= 2)
         }
     }
 
