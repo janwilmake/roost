@@ -29,18 +29,17 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Right-click a session     | Open, Rename, Mark as Seen, Work in Progress, Snooze or Wake, Move to Topic.  |
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
-| Click the rooster         | The overview opens: every session with its title, status and notes.          |
+| Click the rooster         | Restart All Sessions…, Quit Roost.                                            |
 | Drag the rooster          | The strip moves on every screen.                                              |
-| Right-click the rooster   | Overview, Restart All Sessions…, Quit Roost.                                  |
 | Click the + tile          | Start a session in a frequent folder or a new one, resume a recent one, or wake a snoozed one. |
 
 Each strip fills the height of its screen: its tiles share that height, counted as at least eight tiles, so a bigger screen gets bigger tiles. When the tiles would get smaller than 22 points, the strip shows what fits, the way the Dock does. The tile under the cursor still grows.
 
 A terracotta border marks the session in Terminal's front tab; it turns faint while another app is in front. A red dot means the session needs you, and a small orange spinner means it is working. A blue dot means nothing waits on you, but a teammate owes the next step: the `Waiting for team` count of the notes. Red always wins over blue. A gray `wip` badge means work is in progress while Claude is not thinking: it waits on a background shell, a monitor, a loop or another session. A wip session shows no red dot or count, so you don't open it for nothing. A red badge with a number counts what waits for you: the `Late` count of a customer header, or else its `Waiting for us` count, or else the items under `Waiting for you`. A topic adds up the badges of its sessions. A snoozed session leaves the strip; the Snoozed menu under + lists it, with Wake and Open. Snooze offers one-time snoozes (1 hour, 3 hours, tomorrow, 2 to 4 days, 1 or 2 weeks, 1 month, or until the weekend) and repeating ones that you switch on or off: during the week (Mon–Fri), during work hours (Mon–Fri 9–18) and during the weekend. Wake ends a one-time snooze and skips the repeating snooze that holds now. A topic shows the dot or spinner of its most urgent session. A stripe marks the end of an expanded topic.
 
-Roost reads every deadline in the notes: `(due Wed 18 Nov 17:00)`, `(due 20 Nov)`, `back by …` and `promised by …`. A **This week** folder on top of the strip holds a copy of every session with something due before next Monday, soonest first; its tooltip lists those deadlines. It starts shut; a click opens it. The overview opens with an **Agenda**: every deadline of every session, overdue first in red, then by day. A click on a row opens its session. To give a session a deadline yourself, right-click its tile and pick Deadline: today, tomorrow, Friday, Monday or next Friday at 18:00, or Pick a Date…; Clear Deadline removes it. A tool can also send a session's deadlines as data, next to its notes: `{"deadlines": [{"at": "2026-11-20T17:00:00+01:00", "text": "…"}]}` to `POST /api/sessions/<id>`. Those then replace what Roost reads from that session's notes; `null` goes back to the notes. customer-watch sends every open item of its ledgers this way, so the agenda holds them all while the note stays under 300 words. The prompt hook lists each note item that names a date but no deadline, so the session can add `(due …)`.
+Roost reads every deadline in the notes: `(due Wed 18 Nov 17:00)`, `(due 20 Nov)`, `back by …` and `promised by …`. A **This week** folder on top of the strip holds a copy of every session with something due before next Monday, soonest first; its tooltip lists those deadlines. It starts shut; a click opens it. To give a session a deadline yourself, right-click its tile and pick Deadline: today, tomorrow, Friday, Monday or next Friday at 18:00, or Pick a Date…; Clear Deadline removes it. A tool can also send a session's deadlines as data, next to its notes: `{"deadlines": [{"at": "2026-11-20T17:00:00+01:00", "text": "…"}]}` to `POST /api/sessions/<id>`. Those then replace what Roost reads from that session's notes; `null` goes back to the notes. customer-watch sends every open item of its ledgers this way, so This week holds them all while the note stays under 300 words. The prompt hook lists each note item that names a date but no deadline, so the session can add `(due …)`.
 
-The tooltip also shows the time spent in a session: `you 25m` counts the time its tab was in front while you used the Mac (two minutes without a key or mouse touch stops the count), and `Claude 1h 10m` counts the time Claude worked (not the time a shell command runs). The counts are kept in `~/.roost/state.json`, so a resumed session keeps them. The overview opens with two donuts that split your time and Claude's time over the sessions.
+Each session has a color, which its tile and its Terminal tab share, so you match a window to its tile at a glance. The color is a dark one; in light mode Roost shows the same hue pale, with black text. A session sets its own color through the roost skill, the way it sets its title.
 
 The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
 
@@ -70,7 +69,7 @@ To add one session later, send `{"topic":"<topic id>"}` to `/api/sessions/<id>`.
 
 ## For AI agents: write notes
 
-Notes show in full when the user hovers the session, and in the overview that opens from the rooster. Use this format, and leave out a section that is empty:
+Notes show in full when the user hovers the session. Use this format, and leave out a section that is empty:
 
 ```text
 About: one line on what this session is for.
@@ -185,7 +184,7 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/j
   -d '{"emoji":"🧪","photo":null}' http://127.0.0.1:4777/api/sessions/<id>
 ```
 
-Set a background color for an emoji tile, as `#rrggbb`. A dark color keeps the emoji clear, and the same color on the session's Terminal window makes the two easy to match:
+Set the session's color, as `#rrggbb`. Pick a dark color (no channel above `50`) in the main hue of the picture, so white text stays clear on it. Roost fills an emoji tile with it and paints the session's Terminal tab; in light mode both show the same hue pale, with black text:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'content-type: application/json' \

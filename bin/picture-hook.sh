@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code UserPromptSubmit hook, while Roost runs.
-# - No picture or no notes yet: ask Claude to set them.
+# - No picture, color or notes yet: ask Claude to set them.
 # - Notes with a "Waiting for you:" list: show that list, so Claude re-checks it at the end of the
 #   turn. Notes written once and never again keep counting work that is long done.
 # A customer header ("Late: N · …") is written by a tool, not by hand, so those notes stay quiet.
@@ -10,7 +10,7 @@ id=$(jq -r '.session_id // empty')
 session=$(curl -s --max-time 1 http://127.0.0.1:4777/api/sessions | jq -c --arg id "$id" '.sessions[]? | select(.id == $id)')
 [ -n "$session" ] || exit 0
 
-missing=$(jq -r '[if .pictureSet then empty else "picture" end, if .notes then empty else "notes" end] | join(" and ")' <<<"$session")
+missing=$(jq -r '[if .pictureSet then empty else "picture" end, if .color then empty else "color" end, if .notes then empty else "notes" end] | join(" and ")' <<<"$session")
 if [ -n "$missing" ]; then
   cat <<EOF
 Roost (the session strip on this Mac) has no $missing for this session yet. Session id: $id.
@@ -23,7 +23,7 @@ fi
 notes=$(jq -r '.notes // ""' <<<"$session")
 grep -qE '^(.* — )?Late: [0-9]+' <<<"$notes" && exit 0
 waiting=$(awk '/^Waiting for you:/{on=1; next} on && /^- /{print; next} on{exit}' <<<"$notes")
-# Items that name a date but no deadline: Roost's agenda and This week folder read only "(due …)".
+# Items that name a date but no deadline: Roost's This week folder reads only "(due …)".
 undated=$(grep -E '^- ' <<<"$notes" | grep -iE '(^|[^0-9])[0-9]{1,2} (jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)' |
   grep -viE '(due|back by|promised by|until) ')
 if [ -n "$waiting" ]; then
@@ -37,6 +37,6 @@ if [ -n "$undated" ]; then
   cat <<EOF
 These items in this session's Roost notes name a date but no deadline:
 $undated
-When one of them must be done by a date, end it with "(due Wed 18 Nov 17:00)" when you next post the notes, so Roost's agenda shows it. A date that is no deadline needs nothing. Do not mention this to the user.
+When one of them must be done by a date, end it with "(due Wed 18 Nov 17:00)" when you next post the notes, so Roost's This week folder shows it. A date that is no deadline needs nothing. Do not mention this to the user.
 EOF
 fi

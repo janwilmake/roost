@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, addTime, parseIdleTime, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs, workingTabCount } from '../src/sessions.js';
+import { applyNewOrder, parseBounds, cleanTitle, deriveStatus, isSameProcess, locate, mergeOrder, parseProcesses, parseTabs, summarizeHistory, lastAiTitle, waitingForUs, ruleSnoozes, ruleSnoozeEnd, moveIntoTopic, isShownSession, wipStart, wipChange, WIP_MAX_MS, waitingForTeam, inProgress, deadlines, restartArgs, workingTabCount, lightColor } from '../src/sessions.js';
 import { validatePatch, validateTopicPatch } from '../src/store.js';
 import { otherTabs, shellChildren } from '../src/restart.js';
 
@@ -151,15 +151,6 @@ test('validatePatch keeps only known fields and rejects bad values', () => {
   assert.deepEqual(validatePatch({ photo: null, snoozeUntil: null }), { photo: null, snoozeUntil: null });
   assert.deepEqual(validatePatch({ notes: '  Waits for the client. ' }), { notes: 'Waits for the client.' });
   assert.throws(() => validatePatch({ notes: 'x'.repeat(3001) }));
-});
-
-test('time counts while the tab is in front and someone is there, and while Claude works', () => {
-  assert.deepEqual(addTime({}, { step: 2000, watched: true, present: true, busy: false }), { focusMs: 2000 });
-  assert.deepEqual(addTime({ focusMs: 5, workMs: 10 }, { step: 2000, watched: true, present: true, busy: true }), { focusMs: 2005, workMs: 2010 });
-  assert.equal(addTime({}, { step: 2000, watched: true, present: false, busy: false }), null);
-  assert.equal(addTime({}, { step: 0, watched: true, present: true, busy: true }), null);
-  assert.equal(parseIdleTime('  |   "HIDIdleTime" = 8626958000\n'), 8626.958);
-  assert.equal(parseIdleTime(''), null);
 });
 
 test('repeating snoozes follow the local week, and end on the first hour they no longer hold', () => {
@@ -318,4 +309,10 @@ test('a restart lists the other busy tabs, and tells a screen viewer apart', () 
     { tty: 'ttys002', pids: [5, 6], command: 'npm run dev', viewer: false },
     { tty: 'ttys003', pids: [7], command: '/usr/bin/screen -r agent-1', viewer: true },
   ]);
+});
+
+test('a dark color turns pale in its own hue for light mode, and a gray stays gray', () => {
+  assert.equal(lightColor('#3c1612'), '#f5c3be');
+  assert.equal(lightColor('#0c2d12'), '#bef5c8');
+  assert.equal(lightColor('#202020'), '#eeeeee');
 });

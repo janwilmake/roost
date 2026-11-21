@@ -15,8 +15,6 @@ import {
   parseProcesses,
   parseTabs,
   lastAiTitle,
-  addTime,
-  parseIdleTime,
   readSessionFiles,
   ruleSnoozeEnd,
   ruleSnoozes,
@@ -25,10 +23,11 @@ import {
   waitingForTeam,
   inProgress,
   deadlines,
+  lightColor,
 } from './sessions.js';
 import { openStore, validatePatch, validateTopicPatch } from './store.js';
 import { restartAll, restartPlan, restartScene } from './restart.js';
-import { attachBackground, focusTab, listProcesses, listTabs, openViewer, readIdle, startClaude } from './terminal.js';
+import { attachBackground, focusTab, listProcesses, listTabs, openViewer, paintTab, startClaude } from './terminal.js';
 
 const PORT = Number(process.env.ROOST_PORT ?? 4777);
 const HOME = process.env.ROOST_HOME ?? join(homedir(), '.roost');
@@ -44,11 +43,6 @@ const TABS_MAX_AGE_MS = 1000;
 // A poll waits this long for a fresh tab list, then serves the last one, so a slow Terminal never stalls the strip.
 const TABS_WAIT_MS = 400;
 const FLASH_WAIT_MS = 25_000;
-// Time counts between two polls, but a gap longer than this (sleep, the app closed) counts as this much.
-const TIME_STEP_MAX_MS = 10_000;
-// Without keyboard or mouse input for this long, a tab in front no longer counts as your time.
-const AWAY_AFTER_MS = 2 * 60_000;
-const TIME_SAVE_MS = 60_000;
 const flashWaiters = new Set();
 
 const store = await openStore(HOME);
@@ -57,9 +51,9 @@ let tabList = null;
 let tabListAt = 0;
 let tabListLoading = null;
 let knownTabs = new Map();
-let lastTickAt = 0;
-let timeSavedAt = Date.now();
-let timeUnsaved = false;
+// The tabs of sessions with a color, from the last poll, and the colors each tab was last painted.
+let colorTabs = [];
+const painted = new Map();
 
 function refreshTabs() {
   tabListLoading ??= listTabs()
@@ -93,13 +87,9 @@ async function loadLive(tabSource = currentTabs()) {
 }
 
 async function snapshot() {
-  const [{ live, terminalFront, terminalFailed }, idleOutput] = await Promise.all([loadLive(), readIdle().catch(() => '')]);
+  const { live, terminalFront, terminalFailed } = await loadLive();
   const now = Date.now();
   let changed = false;
-  const step = lastTickAt ? Math.min(now - lastTickAt, TIME_STEP_MAX_MS) : 0;
-  lastTickAt = now;
-  const idleMs = parseIdleTime(idleOutput);
-  const present = idleMs !== null && idleMs < AWAY_AFTER_MS;
 
   const merged = mergeOrder(store.state.order, live.map(({ file }) => file.sessionId));
   if (merged.length !== store.state.order.length) {
@@ -109,6 +99,7 @@ async function snapshot() {
 
   const topicIds = new Set(store.state.topics.map((topic) => topic.id));
   const rank = new Map(store.state.order.map((id, index) => [id, index]));
+  const tabsToPaint = [];
   const sessions = live
     .sort((a, b) => rank.get(a.file.sessionId) - rank.get(b.file.sessionId))
     .map(({ file, tab, screenName }) => {
@@ -129,12 +120,7 @@ async function snapshot() {
         saved = store.get(id);
         changed = true;
       }
-      const time = addTime(saved, { step, watched: beingWatched, present, busy: file.status === 'busy' });
-      if (time) {
-        store.update(id, time);
-        saved = store.get(id);
-        timeUnsaved = true;
-      }
+      if (tab && saved.color) tabsToPaint.push({ tab, color: saved.color });
       // Notes that list work handed to the session show it as wip while nothing waits for the user.
       const waiting = waitingForUs(saved.notes);
       const busy = waiting === 0 ? inProgress(saved.notes) : 0;
@@ -166,6 +152,7 @@ async function snapshot() {
         emoji: saved.emoji || defaultAvatar(id),
         photo: saved.photo ?? null,
         color: saved.color ?? null,
+        lightColor: saved.color ? lightColor(saved.color) : null,
         pictureSet: Boolean(saved.photo || saved.emoji),
         notes: saved.notes || null,
         waiting,
@@ -177,8 +164,6 @@ async function snapshot() {
         deadline: saved.deadline ?? null,
         agentName: typeof file.name === 'string' ? file.name : null,
         notesAt: saved.notes ? (saved.notesAt ?? null) : null,
-        focusMs: Math.round(saved.focusMs ?? 0),
-        workMs: Math.round(saved.workMs ?? 0),
         topic: topicIds.has(saved.topic) ? saved.topic : null,
         screenName,
         openable: Boolean(tab || screenName),
@@ -187,13 +172,8 @@ async function snapshot() {
       };
     });
 
-  // The counters grow on every poll, so they reach the disk once a minute, and when the server stops.
-  if (timeUnsaved && now - timeSavedAt > TIME_SAVE_MS) changed = true;
-  if (changed) {
-    timeUnsaved = false;
-    timeSavedAt = now;
-    await store.save();
-  }
+  colorTabs = tabsToPaint;
+  if (changed) await store.save();
   return { sessions, topics: store.state.topics, terminalFailed };
 }
 
@@ -324,6 +304,16 @@ async function startSession(cwd) {
   return { status: 200, body: { ok: true } };
 }
 
+function paintTabs(dark) {
+  for (const { tab, color } of colorTabs) {
+    const look = dark ? [color, '#ebebeb'] : [lightColor(color), '#000000'];
+    const key = look.join();
+    if (painted.get(tab.tty) === key) continue;
+    painted.set(tab.tty, key);
+    paintTab(tab, ...look).catch(() => painted.delete(tab.tty));
+  }
+}
+
 /** The remembered tab makes a click immediate; the slow lookup runs only if that tab changed. */
 async function focusKnownTab(id) {
   const tab = knownTabs.get(id);
@@ -377,7 +367,11 @@ async function handleApi(req, url) {
       tabListAt = 0;
       cached = null;
     }
-    return { status: 200, body: await latestSnapshot() };
+    const body = await latestSnapshot();
+    // The app says which appearance the Mac shows, so each colored tab gets the matching version of its color.
+    const appearance = url.searchParams.get('appearance');
+    if (appearance) paintTabs(appearance === 'dark');
+    return { status: 200, body };
   }
   if (req.method === 'GET' && url.pathname === '/api/flash') return { status: 200, body: { bounds: await nextFlash() } };
   if (req.method === 'GET' && url.pathname === '/api/locations') return { status: 200, body: { locations: await topLocations() } };

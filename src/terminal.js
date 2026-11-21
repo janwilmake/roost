@@ -48,6 +48,19 @@ on run argv
 end run
 `;
 
+const PAINT_TAB = `
+on run argv
+  tell application "Terminal"
+    set t to tab ((item 2 of argv) as integer) of window id ((item 1 of argv) as integer)
+    if tty of t is not (item 3 of argv) then return
+    set background color of t to {(item 4 of argv) as integer, (item 5 of argv) as integer, (item 6 of argv) as integer}
+    set ink to {(item 7 of argv) as integer, (item 8 of argv) as integer, (item 9 of argv) as integer}
+    set normal text color of t to ink
+    set bold text color of t to ink
+    set cursor color of t to ink
+  end tell
+end run`;
+
 const RUN_COMMAND = `
 on run argv
   tell application "Terminal"
@@ -76,12 +89,6 @@ export async function listProcesses() {
   return stdout;
 }
 
-/** Returns the raw `ioreg` output that holds the time since the last keyboard or mouse input. */
-export async function readIdle() {
-  const { stdout } = await run('/usr/sbin/ioreg', ['-c', 'IOHIDSystem', '-d', '4', '-r', '-k', 'HIDIdleTime'], { timeout: 2000 });
-  return stdout;
-}
-
 export async function listTabs() {
   const { stdout } = await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e', LIST_TABS], { timeout: 5000 });
   return stdout;
@@ -98,6 +105,12 @@ export async function startClaude(cwd, resumeId = '', args = ['--dangerously-ski
   const command = ['cd', quote(cwd), '&&', 'claude', ...args.map(quote), ...(resumeId ? ['--resume', quote(resumeId)] : []), ...(prompt ? [quote(prompt)] : [])].join(' ');
   const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout });
   return parseBounds(stdout);
+}
+
+/** Paints a tab's background and text in two "#rrggbb" colors. Terminal takes 16-bit channels. */
+export async function paintTab(tab, background, text) {
+  const channels = [background, text].flatMap((hex) => [1, 3, 5].map((start) => String(parseInt(hex.slice(start, start + 2), 16) * 257)));
+  await run('/usr/bin/osascript', ['-e', PAINT_TAB, String(tab.windowId), String(tab.index), `/dev/${tab.tty}`, ...channels], { timeout: 5000 });
 }
 
 /** Opens a new Terminal window that attaches to a background Claude session, and returns its bounds. */

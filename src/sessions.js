@@ -269,24 +269,6 @@ function squeeze(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-/** Reads the time since the last keyboard or mouse input, in ms, from `ioreg -c IOHIDSystem`. */
-export function parseIdleTime(text) {
-  const match = /"HIDIdleTime" = (\d+)/.exec(text ?? '');
-  return match ? Number(match[1]) / 1e6 : null;
-}
-
-/**
- * Adds one poll's time to a session's counters: `focusMs` while its tab is in front and someone uses the Mac,
- * `workMs` while Claude works. Returns the new counters, or null when neither grew.
- */
-export function addTime(saved, { step, watched, present, busy }) {
-  if (!(step > 0)) return null;
-  const patch = {};
-  if (watched && present) patch.focusMs = (saved.focusMs ?? 0) + step;
-  if (busy) patch.workMs = (saved.workMs ?? 0) + step;
-  return Object.keys(patch).length ? patch : null;
-}
-
 /**
  * Repeating snoozes, in the Mac's local time: `week` is Monday to Friday, `workday` is Monday to Friday
  * from 9:00 to 18:00, and `weekend` is Saturday and Sunday.
@@ -387,4 +369,18 @@ const WORKING_TITLE = /^[◐◓◑◒]/u;
 /** How many Terminal tabs show a Claude session that works now, from the raw tab list. */
 export function workingTabCount(tabOutput) {
   return tabOutput.split('\n').slice(1).filter((row) => WORKING_TITLE.test(row.split('\t').slice(5).join('\t'))).length;
+}
+
+/** The light-mode version of a session's dark color: the same hue, pale enough for black text. A gray stays gray. */
+export function lightColor(hex) {
+  const [r, g, b] = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+  const max = Math.max(r, g, b);
+  const range = max - Math.min(r, g, b);
+  if (range === 0) return '#eeeeee';
+  const hue = max === r ? ((60 * (g - b)) / range + 360) % 360 : max === g ? (60 * (b - r)) / range + 120 : (60 * (r - g)) / range + 240;
+  const [low, high] = [190, 245];
+  const rising = low + ((high - low) * (hue % 60)) / 60;
+  const falling = high + low - rising;
+  const channels = [[high, rising, low], [falling, high, low], [low, high, rising], [low, falling, high], [rising, low, high], [high, low, falling]][Math.floor(hue / 60)];
+  return `#${channels.map((value) => Math.round(value).toString(16).padStart(2, '0')).join('')}`;
 }

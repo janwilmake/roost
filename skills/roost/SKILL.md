@@ -1,6 +1,6 @@
 ---
 name: roost
-description: Keeps this session's tile in Roost (the strip of session tiles at the left edge of the screen) current — its notes, the badge that Roost counts from those notes, its work-in-progress mark, its picture and its title. Use it in every Claude Code session, as a side step at the end of any turn in which something started or stopped waiting on the user or on someone else, or that ends while a background shell, Monitor, loop or awaited message still runs, or the subject or the person of the session changed; when a Roost note says the session has no picture or notes; and when someone asks how Roost works or asks to change this session's title, picture, notes, topic or place in the strip.
+description: Keeps this session's tile in Roost (the strip of session tiles at the left edge of the screen) current — its notes, the badge that Roost counts from those notes, its work-in-progress mark, its picture, its color and its title. Use it in every Claude Code session, as a side step at the end of any turn in which something started or stopped waiting on the user or on someone else, or that ends while a background shell, Monitor, loop or awaited message still runs, or the subject or the person of the session changed; when a Roost note says the session has no picture or notes; and when someone asks how Roost works or asks to change this session's title, picture, color, notes, topic or place in the strip.
 ---
 
 # Roost
@@ -52,7 +52,7 @@ In progress:
 
 Leave out a section that is empty. Keep the notes under 300 words.
 
-An item with a deadline ends with it: `(due Wed 18 Nov 17:00)`, or `(due 20 Nov)` without a time. Give one whenever a date is known: a promise, a meeting, a reply the user owes. Roost puts it in the overview's agenda, and the session in the This week folder when it falls before next Monday. Write "due" only for a real deadline, never for a date in passing.
+An item with a deadline ends with it: `(due Wed 18 Nov 17:00)`, or `(due 20 Nov)` without a time. Give one whenever a date is known: a promise, a meeting, a reply the user owes. Roost puts the session in the This week folder when it falls before next Monday. Write "due" only for a real deadline, never for a date in passing.
 
 The badge is the number of items under `Waiting for you`. A customer session starts with a header line instead, and Roost counts its badge from that header (`Late`, else `Waiting for us`). The header format and the rules for `Late` are in the Roost README (`../../README.md` from the folder of this skill), section "For AI agents: write notes".
 
@@ -75,7 +75,7 @@ Work the user handed to this session belongs in the notes under `In progress` (a
 
 Roost clears the mark itself when the next turn starts; send it again at the end of every turn that still waits. Don't send it when nothing runs, when the user must act, or from a standing watcher whose badge counts late items. Details are in the README, section "For AI agents: mark work in progress".
 
-## The picture and the title
+## The picture, the color and the title
 
 Set or change the picture when it makes sense:
 
@@ -91,6 +91,8 @@ Pick the picture in this order:
 3. Neither: one emoji that fits the subject.
 
 Find it with the tools you have, and with the sources the rules above name. The commands to send a photo, an emoji or a title are in the Roost README (`../../README.md` from the folder of this skill), section "For AI agents: set a session's picture". Crop a photo to a square of 256 pixels first.
+
+Set a color when the session has none, or when the picture changes. Pick one dark color in the main hue of the picture: the skin or background of a photo, the brand color of a logo, the main color of an emoji. Keep every channel at `50` (hex `32`) or below, so white text stays clear on it, for example `{"color": "#32140f"}` for 🐓. Roost fills the tile with it and paints the session's Terminal tab; in light mode it shows the same hue pale. Do not change a color the user chose, unless they ask.
 
 Set a title of a few words when the automatic one does not say what the session is for. Send `{"title": "..."}` to the same endpoint.
 

@@ -127,7 +127,7 @@ struct Face {
     let status: String
     let emoji: String
     let photo: String?
-    /// The tile's background, which the session's Terminal window shares so the two match at a glance.
+    /// The tile's background, which the session's Terminal tab shares so the two match at a glance. It turns pale in light mode.
     let color: NSColor?
     let folder: String
     let screenName: String?
@@ -141,8 +141,6 @@ struct Face {
     let waiting: Int
     /// Items a teammate was asked to do: a blue dot when nothing waits on you.
     let team: Int
-    let focusMs: Double
-    let workMs: Double
     /// What a session waits on while Claude is not thinking, such as "watching CI". Set by the session or by you.
     let wip: String?
     let wipAt: Double?
@@ -162,7 +160,10 @@ struct Face {
         autoTitle = json["autoTitle"] as? String ?? ""
         emoji = json["emoji"] as? String ?? ""
         photo = json["photo"] as? String
-        color = (json["color"] as? String).map { NSColor(hex: $0) }
+        color = (json["color"] as? String).map { dark in
+            let light = json["lightColor"] as? String ?? dark
+            return NSColor(name: nil) { NSColor(hex: $0.isDark ? dark : light) }
+        }
         folder = json["folder"] as? String ?? ""
         screenName = json["screenName"] as? String
         waitingFor = json["waitingFor"] as? String
@@ -174,8 +175,6 @@ struct Face {
         notesAt = json["notesAt"] as? Double
         waiting = json["waiting"] as? Int ?? 0
         team = json["team"] as? Int ?? 0
-        focusMs = json["focusMs"] as? Double ?? 0
-        workMs = json["workMs"] as? Double ?? 0
         wip = json["wip"] as? String
         wipAt = json["wipAt"] as? Double
         front = json["front"] as? String
@@ -200,21 +199,8 @@ struct Face {
         let noted = Face.duration(notesAt).map { "notes \($0) old" } ?? ""
         let repeats = Face.rulesText(snoozeRules).map { "snoozes \($0)" } ?? ""
         let teamText = team > 0 ? "waiting for team: \(team)" : ""
-        return [status, teamText, repeats, folder, screenName ?? "", opened, Face.timeSpent(focusMs: focusMs, workMs: workMs), noted]
+        return [status, teamText, repeats, folder, screenName ?? "", opened, noted]
             .filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    /// "you 25m · Claude 1h 10m": the time this tab was in front while you used the Mac, and the time Claude worked.
-    static func timeSpent(focusMs: Double, workMs: Double) -> String {
-        [focusMs >= 60000 ? "you \(span(focusMs))" : "", workMs >= 60000 ? "Claude \(span(workMs))" : ""]
-            .filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    static func span(_ ms: Double) -> String {
-        let minutes = Int(ms / 60000)
-        if minutes < 60 { return "\(minutes)m" }
-        if minutes < 600 && minutes % 60 > 0 { return "\(minutes / 60)h \(minutes % 60)m" }
-        return "\(minutes / 60)h"
     }
 
     static let snoozeRuleTitles: [(rule: String, title: String, short: String)] = [
@@ -412,8 +398,6 @@ func topicDetail(_ members: [Face], collapsed: Bool) -> String {
     if wip > 0 { parts.append("\(wip) work in progress") }
     let team = members.reduce(0) { $0 + $1.team }
     if team > 0 { parts.append("\(team) waiting for team") }
-    let spent = Face.timeSpent(focusMs: members.reduce(0) { $0 + $1.focusMs }, workMs: members.reduce(0) { $0 + $1.workMs })
-    if !spent.isEmpty { parts.append(spent) }
     parts.append(collapsed ? "click to expand" : "click to collapse")
     return parts.joined(separator: " · ")
 }
@@ -1087,414 +1071,17 @@ final class FlashView: NSView {
     }
 }
 
-// MARK: - Overview
+// MARK: - Colors
+
+extension NSAppearance {
+    var isDark: Bool { bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
+}
 
 extension NSColor {
     /// A color from "#rrggbb".
     convenience init(hex: String) {
         let value = UInt32(hex.dropFirst(), radix: 16) ?? 0
         self.init(srgbRed: CGFloat((value >> 16) & 0xff) / 255, green: CGFloat((value >> 8) & 0xff) / 255, blue: CGFloat(value & 0xff) / 255, alpha: 1)
-    }
-}
-
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
-/// One donut of the overview: how a total time splits over the sessions, with a legend that gives each time.
-final class TimeChartView: NSView {
-    struct Slice {
-        let label: String
-        let ms: Double
-        let color: NSColor
-    }
-
-    static let height: CGFloat = 158
-    private static let diameter: CGFloat = 104
-    private static let rowHeight: CGFloat = 17
-    private let title: String
-    private let slices: [Slice]
-
-    init(frame: NSRect, title: String, slices: [Slice]) {
-        self.title = title
-        self.slices = slices
-        super.init(frame: frame)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override var isFlipped: Bool { true }
-
-    /// The categorical palette, in fixed order: light and dark steps of blue, orange, aqua, yellow, magenta, green, violet.
-    static let colors: [NSColor] = [
-        ("#2a78d6", "#3987e5"), ("#eb6834", "#d95926"), ("#1baf7a", "#199e70"), ("#eda100", "#c98500"),
-        ("#e87ba4", "#d55181"), ("#008300", "#008300"), ("#6250d6", "#9085e9"),
-    ].map { light, dark in
-        NSColor(name: nil) { appearance in
-            NSColor(hex: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
-        }
-    }
-    static let other = NSColor(hex: "#898781")
-
-    /// Picks up to seven sessions with the most time in either chart. Each keeps its color in both charts,
-    /// in strip order, and the rest goes into "Other".
-    static func charts(for faces: [Face]) -> (you: [Slice], claude: [Slice]) {
-        let named = faces.filter { $0.focusMs + $0.workMs >= 60000 }
-            .sorted { $0.focusMs + $0.workMs > $1.focusMs + $1.workMs }.prefix(colors.count).map(\.id)
-        let chosen = faces.filter { named.contains($0.id) }
-        func slices(_ time: (Face) -> Double) -> [Slice] {
-            var result: [Slice] = []
-            var rest = 0.0
-            for face in faces {
-                if let index = chosen.firstIndex(where: { $0.id == face.id }), time(face) >= 60000 {
-                    // "Ernst Jan (Search X) · 15 seats" shows as "Ernst Jan (Search X)".
-                    let label = face.title.components(separatedBy: " · ").first ?? face.title
-                    result.append(Slice(label: label, ms: time(face), color: colors[index]))
-                } else {
-                    rest += time(face)
-                }
-            }
-            if rest >= 60000 { result.append(Slice(label: "Other", ms: rest, color: other)) }
-            return result
-        }
-        return (slices(\.focusMs), slices(\.workMs))
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        let total = slices.reduce(0) { $0 + $1.ms }
-        let heading = total > 0 ? "\(title) · \(Face.span(total))" : title
-        (heading as NSString).draw(at: .zero, withAttributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor])
-
-        let ring = NSRect(x: 0, y: 26, width: Self.diameter, height: Self.diameter)
-        let center = NSPoint(x: ring.midX, y: ring.midY)
-        let outer = Self.diameter / 2
-        let inner = outer * 0.58
-        guard total > 0 else {
-            let track = NSBezierPath(ovalIn: ring.insetBy(dx: (outer - inner) / 2, dy: (outer - inner) / 2))
-            track.lineWidth = outer - inner
-            NSColor.separatorColor.setStroke()
-            track.stroke()
-            ("No time counted yet" as NSString).draw(
-                at: NSPoint(x: ring.maxX + 16, y: ring.midY - 8),
-                withAttributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor])
-            return
-        }
-
-        // In a flipped view the angles run clockwise; -90° is the top.
-        var start: CGFloat = -90
-        for slice in slices {
-            let end = start + 360 * CGFloat(slice.ms / total)
-            let path = NSBezierPath()
-            path.appendArc(withCenter: center, radius: outer, startAngle: start, endAngle: end, clockwise: false)
-            path.appendArc(withCenter: center, radius: inner, startAngle: end, endAngle: start, clockwise: true)
-            path.close()
-            slice.color.setFill()
-            path.fill()
-            if slices.count > 1 {
-                // A 2px gap in the window color between slices.
-                NSColor.windowBackgroundColor.setStroke()
-                path.lineWidth = 2
-                path.stroke()
-            }
-            start = end
-        }
-
-        let legendX = ring.maxX + 18
-        let legendWidth = bounds.width - legendX
-        let truncating = NSMutableParagraphStyle()
-        truncating.lineBreakMode = .byTruncatingTail
-        let labelAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.labelColor, .paragraphStyle: truncating]
-        let timeAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.monospacedDigitSystemFont(ofSize: 11.5, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor]
-        let rows = slices.count
-        var y = ring.midY - CGFloat(rows) * Self.rowHeight / 2
-        for slice in slices {
-            slice.color.setFill()
-            NSBezierPath(roundedRect: NSRect(x: legendX, y: y + 4, width: 9, height: 9), xRadius: 2, yRadius: 2).fill()
-            let time = Face.span(slice.ms) as NSString
-            let timeWidth = ceil(time.size(withAttributes: timeAttributes).width)
-            time.draw(at: NSPoint(x: bounds.width - timeWidth, y: y), withAttributes: timeAttributes)
-            (slice.label as NSString).draw(
-                in: NSRect(x: legendX + 15, y: y, width: max(0, legendWidth - 15 - timeWidth - 8), height: Self.rowHeight),
-                withAttributes: labelAttributes)
-            y += Self.rowHeight
-        }
-    }
-}
-
-/// Closes on Escape, like a sheet.
-final class OverviewPanel: NSPanel {
-    override func cancelOperation(_ sender: Any?) { close() }
-}
-
-/// One session in the overview: picture, title, status and notes. A click opens the session.
-final class OverviewRow: NSView {
-    static let picture: CGFloat = 44
-    static let inset: CGFloat = 12
-    private static let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .foregroundColor: NSColor.labelColor]
-    private static let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11.5), .foregroundColor: NSColor.secondaryLabelColor]
-    private static let notesAttributes: [NSAttributedString.Key: Any] = {
-        let style = NSMutableParagraphStyle()
-        style.paragraphSpacing = 4
-        return [.font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.labelColor, .paragraphStyle: style]
-    }()
-
-    private let face: Face
-    private let onOpen: () -> Void
-    private var hovered = false {
-        didSet { needsDisplay = true }
-    }
-
-    override var isFlipped: Bool { true }
-
-    init(face: Face, width: CGFloat, onOpen: @escaping () -> Void) {
-        self.face = face
-        self.onOpen = onOpen
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height(for: face, width: width)))
-        let picture = FaceView(frame: NSRect(x: Self.inset, y: Self.inset, width: Self.picture, height: Self.picture), face: face)
-        picture.onClick = onOpen
-        addSubview(picture)
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    private static func textWidth(_ width: CGFloat) -> CGFloat { width - picture - 3 * inset }
-
-    static func height(for face: Face, width: CGFloat) -> CGFloat {
-        var text: CGFloat = 20 + 16
-        if !face.notes.isEmpty {
-            text += 8 + ceil((face.notes as NSString).boundingRect(
-                with: NSSize(width: textWidth(width), height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: notesAttributes).height)
-        }
-        return max(picture, text) + 2 * inset
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
-    override func mouseUp(with event: NSEvent) { onOpen() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if hovered {
-            NSColor.labelColor.withAlphaComponent(0.06).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 2), xRadius: 8, yRadius: 8).fill()
-        }
-        let x = Self.inset * 2 + Self.picture
-        let width = Self.textWidth(bounds.width)
-        (face.title as NSString).draw(
-            with: NSRect(x: x, y: Self.inset, width: width, height: 20), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: Self.titleAttributes)
-        (face.detail as NSString).draw(
-            with: NSRect(x: x, y: Self.inset + 20, width: width, height: 16), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine],
-            attributes: Self.detailAttributes)
-        guard !face.notes.isEmpty else { return }
-        (face.notes as NSString).draw(
-            with: NSRect(x: x, y: Self.inset + 44, width: width, height: bounds.height - Self.inset * 2 - 44),
-            options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: Self.notesAttributes)
-    }
-}
-
-/// One deadline in the overview's agenda: time, session and item. A click opens the session.
-final class AgendaRow: NSView {
-    static let height: CGFloat = 22
-    private let time: String
-    private let late: Bool
-    private let session: String
-    private let text: String
-    private let onOpen: () -> Void
-    private var hovered = false {
-        didSet { needsDisplay = true }
-    }
-
-    override var isFlipped: Bool { true }
-
-    init(deadline: Deadline, face: Face, late: Bool, showsTime: Bool, width: CGFloat, onOpen: @escaping () -> Void) {
-        let moment = late ? dueFormatter.string(from: deadline.date) : (deadline.allDay ? "all day" : dueTime(deadline))
-        time = showsTime ? moment : ""
-        self.late = late
-        session = face.title
-        text = deadline.text
-        self.onOpen = onOpen
-        super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
-    override func mouseUp(with event: NSEvent) { onOpen() }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if hovered {
-            NSColor.labelColor.withAlphaComponent(0.06).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 4, dy: 1), xRadius: 6, yRadius: 6).fill()
-        }
-        let font = NSFont.systemFont(ofSize: 12)
-        let x = OverviewRow.inset
-        (time as NSString).draw(at: NSPoint(x: x, y: 3), withAttributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: late ? .semibold : .regular),
-            .foregroundColor: late ? NSColor.systemRed : NSColor.secondaryLabelColor])
-        let line = NSMutableAttributedString(string: session, attributes: [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor])
-        line.append(NSAttributedString(string: "  \(text)", attributes: [.font: font, .foregroundColor: NSColor.labelColor]))
-        let style = NSMutableParagraphStyle()
-        style.lineBreakMode = .byTruncatingTail
-        line.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: line.length))
-        line.draw(with: NSRect(x: x + 64, y: 3, width: bounds.width - x * 2 - 64, height: 16), options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
-    }
-}
-
-/// Every session in strip order, with its title, status and notes. The rooster opens it.
-final class Overview: NSObject, NSWindowDelegate {
-    private let panel: OverviewPanel
-    private let scroll = NSScrollView()
-    private var faces: [Face] = []
-    private var topics: [Topic] = []
-    var onOpen: (String) -> Void = { _ in }
-
-    var isVisible: Bool { panel.isVisible }
-
-    override init() {
-        panel = OverviewPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 640), styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered, defer: false)
-        super.init()
-        panel.title = "Roost"
-        panel.level = .floating
-        panel.isReleasedWhenClosed = false
-        panel.hidesOnDeactivate = false
-        panel.minSize = NSSize(width: 360, height: 240)
-        panel.delegate = self
-        scroll.hasVerticalScroller = true
-        scroll.drawsBackground = false
-        panel.contentView = scroll
-    }
-
-    func toggle(faces: [Face], topics: [Topic], beside anchor: NSRect) {
-        if panel.isVisible {
-            panel.close()
-            return
-        }
-        self.faces = faces
-        self.topics = topics
-        rebuild()
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchor) } ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? .zero
-        let height = min(panel.frame.height, visible.height - 40)
-        panel.setFrame(NSRect(x: anchor.maxX + 16, y: anchor.maxY - height, width: panel.frame.width, height: height), display: false)
-        NSApp.activate(ignoringOtherApps: true)
-        panel.makeKeyAndOrderFront(nil)
-    }
-
-    func update(faces: [Face], topics: [Topic]) {
-        self.faces = faces
-        self.topics = topics
-        if panel.isVisible { rebuild() }
-    }
-
-    func windowDidResize(_ notification: Notification) { rebuild() }
-
-    private func header(_ text: String, at y: CGFloat, width: CGFloat, color: NSColor = .secondaryLabelColor) -> NSTextField {
-        let label = NSTextField(labelWithString: text)
-        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = color
-        label.frame = NSRect(x: OverviewRow.inset, y: y, width: width - 2 * OverviewRow.inset, height: 16)
-        return label
-    }
-
-    /// Every deadline of every session, by day: overdue first, then today, tomorrow and on.
-    private func addAgenda(to document: NSView, at top: CGFloat, width: CGFloat) -> CGFloat {
-        let now = Date()
-        let items = faces.flatMap { face in face.deadlines.map { (face, $0) } }.sorted { $0.1.at < $1.1.at }
-        guard !items.isEmpty else { return top }
-        var y = top
-        document.addSubview(header("AGENDA", at: y + 10, width: width))
-        y += 30
-        var day: String?
-        var moment: Double?
-        for (face, deadline) in items {
-            let late = deadline.date < now
-            let name = late ? "Overdue" : dayName(deadline.date)
-            if name != day {
-                day = name
-                document.addSubview(header(name, at: y + 4, width: width, color: late ? .systemRed : .labelColor))
-                y += 22
-                moment = nil
-            }
-            // The rows of one moment sit under it, so the time shows once.
-            let showsTime = late ? dueFormatter.string(from: deadline.date) != moment.map({ dueFormatter.string(from: $0.date) }) : deadline.at != moment
-            moment = deadline.at
-            let row = AgendaRow(deadline: deadline, face: face, late: late, showsTime: showsTime, width: width) { [weak self] in
-                self?.onOpen(face.id)
-                self?.panel.close()
-            }
-            row.frame.origin.y = y
-            document.addSubview(row)
-            y += AgendaRow.height
-        }
-        return y + 8
-    }
-
-    private func rebuild() {
-        let width = scroll.contentSize.width
-        let document = FlippedView(frame: NSRect(x: 0, y: 0, width: width, height: 0))
-        var y: CGFloat = 6
-        if !faces.isEmpty {
-            let (you, claude) = TimeChartView.charts(for: faces)
-            let gap: CGFloat = 24
-            let chartWidth = (width - 2 * OverviewRow.inset - gap) / 2
-            for (index, (title, slices)) in [("Your time", you), ("Claude's time", claude)].enumerated() {
-                let frame = NSRect(x: OverviewRow.inset + CGFloat(index) * (chartWidth + gap), y: y + 10, width: chartWidth, height: TimeChartView.height)
-                document.addSubview(TimeChartView(frame: frame, title: title, slices: slices))
-            }
-            y += TimeChartView.height + 14
-        }
-        y = addAgenda(to: document, at: y, width: width)
-        let expanded = topics.map { topic -> Topic in
-            var open = topic
-            open.collapsed = false
-            return open
-        }
-        for entry in entries(faces: faces, topics: expanded) {
-            switch entry {
-            case .topic(let topic, let members):
-                let header = NSTextField(labelWithString: "\(topic.name.uppercased())  ·  \(topicDetail(members, collapsed: false).components(separatedBy: " · ").dropLast().joined(separator: " · "))")
-                header.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-                header.textColor = .secondaryLabelColor
-                header.frame = NSRect(x: OverviewRow.inset, y: y + 10, width: width - 2 * OverviewRow.inset, height: 16)
-                document.addSubview(header)
-                y += 30
-            case .face(let face):
-                let row = OverviewRow(face: face, width: width) { [weak self] in
-                    self?.onOpen(face.id)
-                    self?.panel.close()
-                }
-                row.frame.origin.y = y
-                document.addSubview(row)
-                y += row.frame.height
-            }
-        }
-        if faces.isEmpty {
-            let empty = NSTextField(labelWithString: "No Claude Code sessions are running.")
-            empty.textColor = .secondaryLabelColor
-            empty.frame = NSRect(x: OverviewRow.inset, y: 16, width: width - 2 * OverviewRow.inset, height: 18)
-            document.addSubview(empty)
-            y = 50
-        }
-        document.setFrameSize(NSSize(width: width, height: max(y + 6, scroll.contentSize.height)))
-        let origin = scroll.contentView.bounds.origin
-        scroll.documentView = document
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(origin.y, max(0, document.frame.height - scroll.contentSize.height))))
     }
 }
 
@@ -1666,7 +1253,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var weekTiles = 0
     private var editor: TitleEditor?
     private var dateEditor: DateEditor?
-    private let overview = Overview()
 
     private var perchOffset: NSPoint {
         get {
@@ -1681,7 +1267,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        overview.onOpen = { [weak self] id in self?.post("api/sessions/\(id)/open") }
         buildMenu()
         layoutStrips()
         NotificationCenter.default.addObserver(
@@ -1778,7 +1363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rooster = RoosterView(frame: itemFrame)
         rooster.onClick = { [weak self, weak rooster] in
-            if let self, let rooster { self.overview.toggle(faces: self.faces.map { self.latest[$0.id] ?? $0 }, topics: self.topics, beside: self.screenRect(of: rooster)) }
+            if let self, let rooster, let event = NSApp.currentEvent { self.showRoosterMenu(event, rooster) }
         }
         rooster.onMenu = { [weak self] event, view in self?.showRoosterMenu(event, view) }
         rooster.onMoved = { [weak self, weak panel] in
@@ -1949,10 +1534,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showRoosterMenu(_ event: NSEvent, _ view: NSView) {
         let menu = NSMenu()
-        menu.addItem(ActionItem("Overview") { [weak self, weak view] in
-            guard let self, let view else { return }
-            self.overview.toggle(faces: self.faces, topics: self.topics, beside: self.screenRect(of: view))
-        })
         menu.addItem(ActionItem("Restart All Sessions…") { [weak self] in self?.confirmRestartAll() })
         menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Roost") { NSApp.terminate(nil) })
@@ -2320,8 +1901,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func pollFaces(fresh: Bool = false) {
-        let url = serverURL.appendingPathComponent("api/sessions")
-        URLSession.shared.dataTask(with: fresh ? url.appending(queryItems: [URLQueryItem(name: "fresh", value: "1")]) : url) { [weak self] data, _, _ in
+        let appearance = URLQueryItem(name: "appearance", value: NSApp.effectiveAppearance.isDark ? "dark" : "light")
+        let url = serverURL.appendingPathComponent("api/sessions").appending(queryItems: fresh ? [appearance, URLQueryItem(name: "fresh", value: "1")] : [appearance])
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let sessions = root["sessions"] as? [[String: Any]]
             else { return }
@@ -2373,7 +1955,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.faces = faces
         self.topics = topics
         layoutStrips()
-        overview.update(faces: faces, topics: topics)
     }
 
     private func post(_ path: String, _ body: [String: Any] = [:]) {
