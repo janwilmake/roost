@@ -162,7 +162,7 @@ struct Face {
         autoTitle = json["autoTitle"] as? String ?? ""
         emoji = json["emoji"] as? String ?? ""
         photo = json["photo"] as? String
-        color = (json["color"] as? String).flatMap(hexColor)
+        color = (json["color"] as? String).map { NSColor(hex: $0) }
         folder = json["folder"] as? String ?? ""
         screenName = json["screenName"] as? String
         waitingFor = json["waitingFor"] as? String
@@ -924,11 +924,6 @@ final class FaceView: TileView {
         drawFrontBorder()
         drawNotificationDot()
     }
-}
-
-func hexColor(_ hex: String) -> NSColor? {
-    guard hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else { return nil }
-    return NSColor(srgbRed: CGFloat(value >> 16 & 0xff) / 255, green: CGFloat(value >> 8 & 0xff) / 255, blue: CGFloat(value & 0xff) / 255, alpha: 1)
 }
 
 func drawEmoji(_ emoji: String, in rect: NSRect) {
