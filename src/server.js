@@ -51,8 +51,8 @@ let tabList = null;
 let tabListAt = 0;
 let tabListLoading = null;
 let knownTabs = new Map();
-// The tabs of sessions with a color, from the last poll, and the colors each tab was last painted.
-let colorTabs = [];
+// The tabs of the sessions, with the title and color each should show, and what each tab was last painted.
+let styledTabs = [];
 const painted = new Map();
 
 function refreshTabs() {
@@ -120,7 +120,6 @@ async function snapshot() {
         saved = store.get(id);
         changed = true;
       }
-      if (tab && saved.color) tabsToPaint.push({ tab, color: saved.color });
       // Notes that list work handed to the session show it as wip while nothing waits for the user.
       const waiting = waitingForUs(saved.notes);
       const busy = waiting === 0 ? inProgress(saved.notes) : 0;
@@ -133,6 +132,7 @@ async function snapshot() {
         saved = store.get(id);
         changed = true;
       }
+      if (tab) tabsToPaint.push({ tab, color: saved.color, title: saved.photo || !saved.emoji ? title : `${saved.emoji} ${title}` });
       return {
         id,
         pid: file.pid,
@@ -172,7 +172,7 @@ async function snapshot() {
       };
     });
 
-  colorTabs = tabsToPaint;
+  styledTabs = tabsToPaint;
   if (changed) await store.save();
   return { sessions, topics: store.state.topics, terminalFailed };
 }
@@ -305,8 +305,8 @@ async function startSession(cwd) {
 }
 
 function paintTabs(dark) {
-  for (const { tab, color } of colorTabs) {
-    const look = dark ? [color, '#ebebeb'] : [lightColor(color), '#000000'];
+  for (const { tab, color, title } of styledTabs) {
+    const look = [title, ...(color ? (dark ? [color, '#ebebeb'] : [lightColor(color), '#000000']) : [])];
     const key = look.join();
     if (painted.get(tab.tty) === key) continue;
     painted.set(tab.tty, key);
@@ -368,7 +368,7 @@ async function handleApi(req, url) {
       cached = null;
     }
     const body = await latestSnapshot();
-    // The app says which appearance the Mac shows, so each colored tab gets the matching version of its color.
+    // The app says which appearance the Mac shows, so each tab gets the matching version of its session's color.
     const appearance = url.searchParams.get('appearance');
     if (appearance) paintTabs(appearance === 'dark');
     return { status: 200, body };

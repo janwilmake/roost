@@ -53,8 +53,10 @@ on run argv
   tell application "Terminal"
     set t to tab ((item 2 of argv) as integer) of window id ((item 1 of argv) as integer)
     if tty of t is not (item 3 of argv) then return
-    set background color of t to {(item 4 of argv) as integer, (item 5 of argv) as integer, (item 6 of argv) as integer}
-    set ink to {(item 7 of argv) as integer, (item 8 of argv) as integer, (item 9 of argv) as integer}
+    set custom title of t to item 4 of argv
+    if (count of argv) < 10 then return
+    set background color of t to {(item 5 of argv) as integer, (item 6 of argv) as integer, (item 7 of argv) as integer}
+    set ink to {(item 8 of argv) as integer, (item 9 of argv) as integer, (item 10 of argv) as integer}
     set normal text color of t to ink
     set bold text color of t to ink
     set cursor color of t to ink
@@ -107,10 +109,10 @@ export async function startClaude(cwd, resumeId = '', args = ['--dangerously-ski
   return parseBounds(stdout);
 }
 
-/** Paints a tab's background and text in two "#rrggbb" colors. Terminal takes 16-bit channels. */
-export async function paintTab(tab, background, text) {
-  const channels = [background, text].flatMap((hex) => [1, 3, 5].map((start) => String(parseInt(hex.slice(start, start + 2), 16) * 257)));
-  await run('/usr/bin/osascript', ['-e', PAINT_TAB, String(tab.windowId), String(tab.index), `/dev/${tab.tty}`, ...channels], { timeout: 5000 });
+/** Sets a tab's title, and paints its background and text in two "#rrggbb" colors when given. Terminal takes 16-bit channels. */
+export async function paintTab(tab, title, background, text) {
+  const channels = (background ? [background, text] : []).flatMap((hex) => [1, 3, 5].map((start) => String(parseInt(hex.slice(start, start + 2), 16) * 257)));
+  await run('/usr/bin/osascript', ['-e', PAINT_TAB, String(tab.windowId), String(tab.index), `/dev/${tab.tty}`, title, ...channels], { timeout: 5000 });
 }
 
 /** Opens a new Terminal window that attaches to a background Claude session, and returns its bounds. */
