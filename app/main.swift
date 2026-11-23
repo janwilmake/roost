@@ -30,6 +30,26 @@ struct TileMetrics {
 let draggedScale: CGFloat = 1.25
 let stripBottomMargin: CGFloat = 8
 
+/// Wide mode lays the strip out in rows of this many tiles.
+let wideColumns = 3
+
+/// The row and column of each tile in wide mode. A tile starts a new row when its row is full or its group differs from
+/// the tile before it, so each topic and its sessions start on a row of their own.
+func gridCells(_ groups: [String], columns: Int) -> [(row: Int, column: Int)] {
+    var cells: [(row: Int, column: Int)] = []
+    var row = 0
+    var column = 0
+    for (index, group) in groups.enumerated() {
+        if index > 0 && (column == columns || group != groups[index - 1]) {
+            row += 1
+            column = 0
+        }
+        cells.append((row, column))
+        column += 1
+    }
+    return cells
+}
+
 enum Palette {
     static let terracotta = NSColor(srgbRed: 0.80, green: 0.33, blue: 0.17, alpha: 1)
     static let deepTerracotta = NSColor(srgbRed: 0.60, green: 0.22, blue: 0.11, alpha: 1)
@@ -434,12 +454,16 @@ final class StripView: NSView {
         let sessionId: String?
         let stripe: NSView?
         let notes: String
+        let group: String
         let detail: () -> String
         var reveal: CGFloat = 1
         var revealTarget: CGFloat = 1
     }
 
     var metrics = TileMetrics(size: 40)
+    /// 1 for the single column; more in wide mode, which shows a grid without the zoom.
+    var columns = 1
+    private var isWide: Bool { columns > 1 }
     var onReorder: (_ from: Int, _ to: Int) -> Void = { _, _ in }
     private var items: [Item] = []
     private var isRevealing = false
@@ -463,9 +487,9 @@ final class StripView: NSView {
     }
 
     func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, notes: String = "",
-             detail: @escaping () -> String) {
+             group: String = "", detail: @escaping () -> String) {
         let stripe = endsTopic ? TopicEndView(frame: .zero) : nil
-        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, notes: notes, detail: detail))
+        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, notes: notes, group: group, detail: detail))
         addSubview(view)
         if let stripe { addSubview(stripe) }
         placeItems()
@@ -541,11 +565,13 @@ final class StripView: NSView {
 
     private func begin() {
         guard let window, timer == nil else { return }
-        topPadding = metrics.padding
-        let rest = window.frame
-        window.setFrame(
-            NSRect(x: rest.minX, y: rest.minY - metrics.padding, width: metrics.magnifiedWidth, height: rest.height + 2 * metrics.padding),
-            display: false)
+        if !isWide {
+            topPadding = metrics.padding
+            let rest = window.frame
+            window.setFrame(
+                NSRect(x: rest.minX, y: rest.minY - metrics.padding, width: metrics.magnifiedWidth, height: rest.height + 2 * metrics.padding),
+                display: false)
+        }
         let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in autoreleasepool { self?.tick() } }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
@@ -558,6 +584,7 @@ final class StripView: NSView {
         }
         if stepReveal() { return }
         let mouse = NSEvent.mouseLocation
+        if isWide { return tickWide(convert(window.convertPoint(fromScreen: mouse), from: nil)) }
         let frame = window.frame
         let restTop = frame.maxY - topPadding
         if let dragged = draggedIndex {
@@ -576,18 +603,37 @@ final class StripView: NSView {
             finish()
         } else {
             placeItems()
-            if inside { showTooltip() } else { tooltip?.orderOut(nil) }
+            if inside {
+                showTooltip(min(max(Int((cursor - metrics.size / 2 + metrics.step / 2) / metrics.step), 0), items.count - 1))
+            } else {
+                tooltip?.orderOut(nil)
+            }
         }
     }
 
-    private func showTooltip() {
-        guard let window, !items.isEmpty else { return }
-        let index = min(max(Int((cursor - metrics.size / 2 + metrics.step / 2) / metrics.step), 0), items.count - 1)
+    /// Wide mode has no zoom: the label follows the tile under the cursor.
+    private func tickWide(_ point: NSPoint) {
+        if let dragged = draggedIndex {
+            tooltip?.orderOut(nil)
+            return stepReorderWide(dragged: dragged, point: point)
+        }
+        guard bounds.insetBy(dx: -2, dy: -2).contains(point) || isRevealing else { return finish() }
+        placeItems()
+        let half = metrics.gap / 2
+        if let index = items.firstIndex(where: { !$0.view.isHidden && $0.view.frame.insetBy(dx: -half, dy: -half).contains(point) }) {
+            showTooltip(index)
+        } else {
+            tooltip?.orderOut(nil)
+        }
+    }
+
+    private func showTooltip(_ index: Int) {
+        guard let window, items.indices.contains(index) else { return }
         let item = items[index]
         let detail = item.detail()
         let size = TooltipView.size(title: item.title, detail: detail, notes: item.notes)
         let tileMid = window.frame.minY + item.view.frame.midY
-        var frame = NSRect(x: window.frame.minX + item.view.frame.maxX + 8, y: tileMid - size.height / 2, width: size.width, height: size.height)
+        var frame = NSRect(x: window.frame.minX + (isWide ? bounds.width : item.view.frame.maxX) + 8, y: tileMid - size.height / 2, width: size.width, height: size.height)
         // Long notes make a tall label. It stays on the screen, and its arrow keeps pointing at the tile.
         if let visible = window.screen?.visibleFrame {
             frame.origin.y = max(min(frame.minY, visible.maxY - 4 - frame.height), visible.minY + 4)
@@ -609,10 +655,12 @@ final class StripView: NSView {
         timer?.invalidate()
         timer = nil
         amount = 0
-        let grown = window.frame
-        window.setFrame(
-            NSRect(x: grown.minX, y: grown.minY + topPadding, width: metrics.size, height: grown.height - 2 * topPadding),
-            display: false)
+        if !isWide {
+            let grown = window.frame
+            window.setFrame(
+                NSRect(x: grown.minX, y: grown.minY + topPadding, width: metrics.size, height: grown.height - 2 * topPadding),
+                display: false)
+        }
         topPadding = 0
         tooltip?.orderOut(nil)
         placeItems()
@@ -624,8 +672,25 @@ final class StripView: NSView {
         view.frame = NSRect(x: 0, y: bounds.height - topPadding - center - size / 2, width: size, height: size)
     }
 
+    private func cellCenter(_ cell: (row: Int, column: Int)) -> NSPoint {
+        NSPoint(x: metrics.size / 2 + CGFloat(cell.column) * metrics.step,
+                y: bounds.height - topPadding - metrics.size / 2 - CGFloat(cell.row) * metrics.step)
+    }
+
+    private func setFrame(of view: NSView, at center: NSPoint, size: CGFloat) {
+        view.frame = NSRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
+    }
+
     /// A fisheye along the strip: the point under the cursor stays still and the rest slides apart.
     private func placeItems() {
+        if isWide {
+            let cells = gridCells(items.map(\.group), columns: columns)
+            for (index, item) in items.enumerated() {
+                setFrame(of: item.view, at: cellCenter(cells[index]), size: metrics.size * item.reveal)
+                item.view.isHidden = item.reveal < 0.02
+            }
+            return placeStripes()
+        }
         let strength = (metrics.scale - 1) * amount
         var filled: CGFloat = 0
         for (index, item) in items.enumerated() {
@@ -647,6 +712,11 @@ final class StripView: NSView {
         for (index, item) in items.enumerated() {
             guard let stripe = item.stripe else { continue }
             stripe.isHidden = isRevealing || draggedIndex != nil
+            if isWide {
+                // Under the whole row of the topic's last session.
+                stripe.frame = NSRect(x: 4, y: item.view.frame.minY - metrics.gap / 2 - 1, width: max(bounds.width - 8, 0), height: 2)
+                continue
+            }
             let top = item.view.frame.minY
             let bottom = index + 1 < items.count ? items[index + 1].view.frame.maxY : top - metrics.gap
             stripe.frame = NSRect(x: 4, y: (top + bottom) / 2 - 1, width: max(item.view.frame.width - 8, 0), height: 2)
@@ -684,6 +754,30 @@ final class StripView: NSView {
                 : current + (restCenter(slot) - current) * 0.3
             let target = isDragged ? metrics.size * draggedScale : metrics.size
             setFrame(of: item.view, center: center, size: item.view.frame.width + (target - item.view.frame.width) * 0.3)
+        }
+    }
+
+    /// The grid version of the drag: the drop slot is the nearest tile, and the others move to their cells in the new order.
+    private func stepReorderWide(dragged: Int, point: NSPoint) {
+        let first = items.firstIndex { $0.view.reorders } ?? 1
+        let last = items.lastIndex { $0.view.reorders } ?? items.count - 1
+        let rest = gridCells(items.map(\.group), columns: columns).map(cellCenter)
+        dropSlot = (first...last).min { hypot(rest[$0].x - point.x, rest[$0].y - point.y) < hypot(rest[$1].x - point.x, rest[$1].y - point.y) } ?? dragged
+        var order = Array(items.indices)
+        order.remove(at: dragged)
+        order.insert(dragged, at: dropSlot)
+        // The dragged tile joins the group it lands in.
+        let groups = order.enumerated().map { position, index in
+            index == dragged && position > 0 ? items[order[position - 1]].group : items[index].group
+        }
+        for (position, cell) in gridCells(groups, columns: columns).enumerated() {
+            let view = items[order[position]].view
+            let isDragged = order[position] == dragged
+            let target = isDragged ? point : cellCenter(cell)
+            let center = NSPoint(x: view.frame.midX + (target.x - view.frame.midX) * (isDragged ? 1 : 0.3),
+                                 y: view.frame.midY + (target.y - view.frame.midY) * (isDragged ? 1 : 0.3))
+            let size = isDragged ? metrics.size * draggedScale : metrics.size
+            setFrame(of: view, at: center, size: view.frame.width + (size - view.frame.width) * 0.3)
         }
     }
 
@@ -1254,6 +1348,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var editor: TitleEditor?
     private var dateEditor: DateEditor?
 
+    /// Wide mode shows the strip as a grid of three tiles per row, so every topic can stay open.
+    private var isWide: Bool {
+        get { UserDefaults.standard.bool(forKey: "wideMode") }
+        set { UserDefaults.standard.set(newValue, forKey: "wideMode") }
+    }
+
     private var perchOffset: NSPoint {
         get {
             let defaults = UserDefaults.standard
@@ -1347,17 +1447,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let room = visible.height - offset.y - stripBottomMargin
         let week = weekEntries()
         let all = week + entries(faces: shownFaces, topics: topics)
-        // The rooster and the plus tile count too.
-        let tiles = TileMetrics.filling(room, count: all.count + 2)
-        let capacity = max(0, Int((room - tiles.size - tiles.gap) / tiles.step) - 1)
-        let shown = Array(all.prefix(capacity))
+        let columns = isWide ? wideColumns : 1
+        // The group of each entry: a topic and its sessions share one, so in wide mode each topic starts a row.
+        let groups = all.enumerated().map { index, entry -> String in
+            if index < week.count { return "week" }
+            if case .topic(let topic, _) = entry { return topic.id }
+            return entry.memberOf ?? "loose"
+        }
+        // The rooster and the plus tile each take a row of their own; in the single column a row is one tile.
+        let rows = { (count: Int) in (gridCells(Array(groups.prefix(count)), columns: columns).last?.row ?? -1) + 3 }
+        let tiles = TileMetrics.filling(room, count: rows(all.count))
+        var count = all.count
+        while count > 0 && CGFloat(rows(count)) * tiles.step > room { count -= 1 }
+        let shown = Array(all.prefix(count))
         weekTiles = min(week.count, shown.count)
         // The extra gap leaves room for a stripe under a topic at the end of the sessions.
-        let height = tiles.size + CGFloat(shown.count + 1) * tiles.step + tiles.gap
-        panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: tiles.size, height: height), display: false)
+        let height = tiles.size + CGFloat(rows(count) - 1) * tiles.step + tiles.gap
+        let width = CGFloat(columns) * tiles.step - tiles.gap
+        panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: width, height: height), display: false)
 
-        let content = StripView(frame: NSRect(x: 0, y: 0, width: tiles.size, height: height))
+        let content = StripView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         content.metrics = tiles
+        content.columns = columns
         content.onReorder = { [weak self] from, to in self?.reorder(from: from, to: to) }
         let itemFrame = NSRect(x: 0, y: 0, width: tiles.size, height: tiles.size)
 
@@ -1371,7 +1482,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.remember(position: panel)
             DispatchQueue.main.async { self.layoutStrips() }
         }
-        content.add(item: rooster, title: "Roost") { [weak self] in self?.summary ?? "" }
+        content.add(item: rooster, title: "Roost", group: "rooster") { [weak self] in self?.summary ?? "" }
 
         for (index, entry) in shown.enumerated() {
             let inWeek = index < week.count
@@ -1388,19 +1499,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // A copy has an id of its own, so a topic that folds shut does not fold it too.
                 content.add(item: view, title: face.title, sessionId: inWeek ? weekCopyId(face.id) : face.id,
                             endsTopic: inWeek ? index == week.count - 1 : face.topic != nil && next != face.topic,
-                            notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes) { [weak self] in (self?.latest[face.id] ?? face).detail }
+                            notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes, group: groups[index]) { [weak self] in (self?.latest[face.id] ?? face).detail }
             case .topic(let topic, let members) where inWeek:
                 let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
                 view.canReorder = false
                 view.onClick = { [weak self] in self?.setWeekCollapsed(!topic.collapsed, members: members) }
-                content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }) {
+                content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }, group: groups[index]) {
                     "\(members.count) session\(members.count == 1 ? "" : "s") with something due before Monday"
                 }
             case .topic(let topic, let members):
                 let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: topic, event, view) }
-                content.add(item: view, title: topic.name) { [weak self] in
+                content.add(item: view, title: topic.name, group: groups[index]) { [weak self] in
                     topicDetail(members.map { self?.latest[$0.id] ?? $0 }, collapsed: topic.collapsed)
                 }
             }
@@ -1410,7 +1521,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let self, let plus { self.showStartMenu(beside: plus) }
         }
         plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
-        content.add(item: plus, title: "New Session") { "Start Claude in a folder" }
+        content.add(item: plus, title: "New Session", group: "plus") { "Start Claude in a folder" }
         (panel.contentView as? StripView)?.handOver(to: content)
         panel.contentView = content
         showUnlessFullscreen(panel, on: screen)
@@ -1562,6 +1673,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showRoosterMenu(_ event: NSEvent, _ view: NSView) {
         let menu = NSMenu()
+        let wide = ActionItem("Wide Mode") { [weak self] in
+            guard let self else { return }
+            self.isWide.toggle()
+            self.layoutStrips()
+        }
+        wide.state = isWide ? .on : .off
+        menu.addItem(wide)
         menu.addItem(ActionItem("Restart All Sessions…") { [weak self] in self?.confirmRestartAll() })
         menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Roost") { NSApp.terminate(nil) })
