@@ -29,7 +29,8 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Right-click a session     | Open, Rename, Mark as Seen, Work in Progress, Snooze or Wake, Move to Topic.  |
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
-| Click the rooster         | Wide Mode, Restart All Sessions…, Quit Roost.                                 |
+| Click the rooster         | Fold every tile into the rooster, or bring them back.                         |
+| Right-click the rooster   | Wide Mode, Restart All Sessions…, Quit Roost.                                 |
 | Drag the rooster          | The strip moves on every screen.                                              |
 | Click the + tile          | Start a session in a frequent folder or a new one, resume a recent one, or wake a snoozed one. |
 

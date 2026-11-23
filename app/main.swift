@@ -2,6 +2,8 @@ import AppKit
 
 let serverURL = URL(string: "http://127.0.0.1:4777/")!
 let smallestTile: CGFloat = 22
+/// Few sessions would make huge tiles; they stop growing here.
+let largestTile: CGFloat = 40
 /// A strip sizes its tiles as if it had at least this many, so a short strip does not get huge tiles.
 let minimumTileCount = 8
 
@@ -454,8 +456,19 @@ final class StripView: NSView {
         let group: String
         let header: Bool
         let detail: () -> String
-        var reveal: CGFloat = 1
-        var revealTarget: CGFloat = 1
+        /// Where the tile stood in the strip this one replaced, measured down from the top, while it moves to its place.
+        var from: NSRect?
+        /// New in this strip: it fades in as it slides into place.
+        var appears = false
+
+        var key: String { sessionId ?? "\(group)|\(title)" }
+    }
+
+    /// A tile of the old strip that this one no longer shows, shrinking into its topic.
+    private struct Ghost {
+        let view: NSView
+        let from: NSRect
+        let to: NSRect
     }
 
     var metrics = TileMetrics(size: 40)
@@ -466,8 +479,15 @@ final class StripView: NSView {
     private var isWide: Bool { columns > 1 }
     var onReorder: (_ from: Int, _ to: Int) -> Void = { _, _ in }
     private var items: [Item] = []
-    private var isRevealing = false
-    private var onRevealDone: (() -> Void)?
+    /// The tiles of the strip this one replaced, by key, with their frames measured down from the top.
+    private var previous: [String: (view: NSView, frame: NSRect, group: String)] = [:]
+    private var ghosts: [Ghost] = []
+    private var morphStart: CFTimeInterval?
+    /// The panel's frame before it grew to hold the old tiles while they move.
+    private var morphRestore: NSRect?
+    /// Set when the strip hides or shows its tiles: they fold into the rooster and grow out of it.
+    var foldsIntoRooster = false
+    private var isMorphing: Bool { morphStart != nil }
     private var tooltip: NSPanel?
     private var timer: Timer?
     private var amount: CGFloat = 0
@@ -479,11 +499,17 @@ final class StripView: NSView {
     var isBusy: Bool { timer != nil }
 
     /// A rebuild under the cursor keeps the zoom and the label, so a click does not shrink the strip for a moment.
-    func handOver(to next: StripView) {
+    /// Where each tile stands, measured down from the top. Taken before the panel resizes, which moves them.
+    func snapshot() -> [String: (view: NSView, frame: NSRect, group: String)] {
+        Dictionary(items.map { ($0.key, ($0.view as NSView, fromTop($0.view.frame), $0.group)) }) { first, _ in first }
+    }
+
+    func handOver(to next: StripView, tiles: [String: (view: NSView, frame: NSRect, group: String)]) {
         next.amount = amount
         next.cursor = cursor
         next.tooltip = tooltip
         tooltip = nil
+        next.previous = tiles
     }
 
     func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, notes: String = "",
@@ -496,46 +522,102 @@ final class StripView: NSView {
         placeItems()
     }
 
-    /// Slides the given sessions out from under their topic tile.
-    func animateIn(_ sessionIds: Set<String>) {
-        for index in items.indices where items[index].sessionId.map(sessionIds.contains) == true {
-            items[index].reveal = 0
-        }
-        startReveal()
+    /// A rect measured down from the top of the strip, so it holds when the strip's height changes.
+    private func fromTop(_ rect: NSRect) -> NSRect {
+        NSRect(x: rect.minX, y: bounds.height - topPadding - rect.maxY, width: rect.width, height: rect.height)
     }
 
-    /// Folds the given sessions into their topic tile, then calls `done`.
-    func animateOut(_ sessionIds: Set<String>, done: (() -> Void)?) {
-        for index in items.indices where items[index].sessionId.map(sessionIds.contains) == true {
-            items[index].revealTarget = 0
-        }
-        onRevealDone = done
-        startReveal()
+    private func toView(_ rect: NSRect) -> NSRect {
+        NSRect(x: rect.minX, y: bounds.height - topPadding - rect.minY - rect.height, width: rect.width, height: rect.height)
     }
 
-    private func startReveal() {
-        isRevealing = true
+    /// After a rebuild every tile moves from where it stood to its new place. Tiles that stay slide and resize. The sessions
+    /// of a topic that opens slide down out of its name and fade in; those of a topic that shuts slide up into it and fade out.
+    /// Folding the strip does the same with the rooster.
+    private func startMorph() {
+        guard !previous.isEmpty else { return }
+        let old = previous
+        previous = [:]
+        placeItems()
+        let isTopic = { (view: NSView) in view is TopicView || view is TopicLabelView }
+        // A small tile in the column of `rect`, in the row of `anchor`.
+        let tucked = { (rect: NSRect, anchor: NSRect) -> NSRect in
+            let side = rect.width * 0.5
+            return NSRect(x: rect.midX - side / 2, y: anchor.midY - side / 2, width: side, height: side)
+        }
+        let topics = Dictionary(items.filter { isTopic($0.view) }.map { ($0.group, fromTop($0.view.frame)) }) { first, _ in first }
+        let oldTopics = Dictionary(old.values.filter { isTopic($0.view) }.map { ($0.group, $0.frame) }) { first, _ in first }
+        // The rooster is the first tile.
+        let rooster = foldsIntoRooster ? items.first.map { fromTop($0.view.frame) } : nil
+        let oldRooster = foldsIntoRooster ? items.first.flatMap { old[$0.key]?.frame } : nil
+        var moves = false
+        for index in items.indices {
+            let now = fromTop(items[index].view.frame)
+            if let from = old[items[index].key]?.frame {
+                items[index].from = from
+                if abs(from.minX - now.minX) + abs(from.minY - now.minY) + abs(from.width - now.width) > 0.5 { moves = true }
+            } else {
+                items[index].from = tucked(now, oldTopics[items[index].group] ?? oldRooster ?? now)
+                items[index].appears = true
+                moves = true
+            }
+        }
+        let keys = Set(items.map(\.key))
+        for (key, tile) in old where !keys.contains(key) {
+            addSubview(tile.view, positioned: .below, relativeTo: nil)
+            ghosts.append(Ghost(view: tile.view, from: tile.frame, to: tucked(tile.frame, topics[tile.group] ?? rooster ?? tile.frame)))
+            moves = true
+        }
+        guard moves else {
+            for index in items.indices { items[index].from = nil }
+            return
+        }
+        morphStart = CACurrentMediaTime()
         begin()
+        // The panel holds the old tiles until they reach their place.
+        let extent = old.values.reduce(NSRect.zero) { $0.union($1.frame) }
+        let (wider, taller) = (max(0, extent.maxX - bounds.width), max(0, extent.maxY - (bounds.height - topPadding)))
+        if let window, wider > 0 || taller > 0 {
+            let frame = window.frame
+            morphRestore = frame
+            window.setFrame(NSRect(x: frame.minX, y: frame.minY - taller, width: frame.width + wider, height: frame.height + taller), display: false)
+        }
         placeItems()
     }
 
-    /// Returns true when the finishing callback ran, because it replaces this view.
-    private func stepReveal() -> Bool {
-        var moving = false
-        for index in items.indices where items[index].reveal != items[index].revealTarget {
-            let gap = items[index].revealTarget - items[index].reveal
-            if abs(gap) < 0.01 {
-                items[index].reveal = items[index].revealTarget
-            } else {
-                items[index].reveal += gap * 0.25
-                moving = true
-            }
+    /// Eases each tile from its old frame to the one the layout gives it now.
+    private func applyMorph() {
+        guard let start = morphStart else { return }
+        let progress = min(1, (CACurrentMediaTime() - start) / 0.35)
+        // Ease in and out, so nothing starts or stops with a jolt.
+        let eased = progress < 0.5 ? 4 * pow(progress, 3) : 1 - pow(-2 * progress + 2, 3) / 2
+        let blend = { (from: NSRect, to: NSRect) in
+            NSRect(x: from.minX + (to.minX - from.minX) * eased, y: from.minY + (to.minY - from.minY) * eased,
+                   width: from.width + (to.width - from.width) * eased, height: from.height + (to.height - from.height) * eased)
         }
-        isRevealing = moving
-        guard !moving, let done = onRevealDone else { return false }
-        onRevealDone = nil
-        done()
-        return true
+        for item in items {
+            guard let from = item.from else { continue }
+            item.view.frame = toView(blend(from, fromTop(item.view.frame)))
+            if item.appears { item.view.alphaValue = eased }
+        }
+        for ghost in ghosts {
+            ghost.view.frame = toView(blend(ghost.from, ghost.to))
+            ghost.view.alphaValue = 1 - eased
+        }
+        guard progress >= 1 else { return }
+        morphStart = nil
+        for index in items.indices {
+            items[index].from = nil
+            items[index].appears = false
+            items[index].view.alphaValue = 1
+        }
+        ghosts.forEach { $0.view.removeFromSuperview() }
+        ghosts = []
+        if let frame = morphRestore {
+            morphRestore = nil
+            window?.setFrame(frame, display: false)
+            placeItems()
+        }
     }
 
     override func updateTrackingAreas() {
@@ -558,7 +640,10 @@ final class StripView: NSView {
             // Zoomed already: grow at once, before the panel shows a frame at rest size.
             begin()
             placeItems()
-        } else if window.frame.contains(NSEvent.mouseLocation) {
+        }
+        startMorph()
+        if amount > 0 || isMorphing { return }
+        if window.frame.contains(NSEvent.mouseLocation) {
             // A rebuild under a resting cursor produces no mouseEntered.
             DispatchQueue.main.async { self.begin() }
         } else {
@@ -586,7 +671,6 @@ final class StripView: NSView {
             tooltip?.orderOut(nil)
             return
         }
-        if stepReveal() { return }
         let mouse = NSEvent.mouseLocation
         if isWide { return tickWide(convert(window.convertPoint(fromScreen: mouse), from: nil)) }
         let frame = window.frame
@@ -603,7 +687,7 @@ final class StripView: NSView {
 
         amount += ((inside ? 1 : 0) - amount) * 0.3
         if inside { cursor = restTop - mouse.y }
-        if !inside && amount < 0.01 && !isRevealing {
+        if !inside && amount < 0.01 && !isMorphing {
             finish()
         } else {
             placeItems()
@@ -621,7 +705,7 @@ final class StripView: NSView {
             tooltip?.orderOut(nil)
             return stepReorderWide(dragged: dragged, point: point)
         }
-        guard bounds.insetBy(dx: -2, dy: -2).contains(point) || isRevealing else { return finish() }
+        guard bounds.insetBy(dx: -2, dy: -2).contains(point) || isMorphing else { return finish() }
         placeItems()
         let half = metrics.gap / 2
         if let index = items.firstIndex(where: { !$0.view.isHidden && $0.view.frame.insetBy(dx: -half, dy: -half).contains(point) }) {
@@ -687,26 +771,23 @@ final class StripView: NSView {
     private func placeItems() {
         if isWide {
             let frames = gridFrames(items.map { ($0.group, $0.header) })
-            for (index, item) in items.enumerated() {
-                let rest = frames[index]
-                item.view.frame = rest.insetBy(dx: rest.width * (1 - item.reveal) / 2, dy: rest.height * (1 - item.reveal) / 2)
-                item.view.isHidden = item.reveal < 0.02
-            }
+            for (index, item) in items.enumerated() { item.view.frame = frames[index] }
+            applyMorph()
             return placeStripes()
         }
         let strength = (metrics.scale - 1) * amount
         var filled: CGFloat = 0
         for (index, item) in items.enumerated() {
-            if index > 0 { filled += metrics.gap * item.reveal }
-            let rest = filled + metrics.size * item.reveal / 2
-            filled += metrics.size * item.reveal
+            if index > 0 { filled += metrics.gap }
+            let rest = filled + metrics.size / 2
+            filled += metrics.size
             let offset = cursor - rest
             let distance = abs(offset)
             let center = cursor - (offset < 0 ? -1 : 1) * stretched(distance, strength: strength)
             let wave = distance < metrics.radius ? pow(cos(.pi * distance / (2 * metrics.radius)), 2) : 0
-            setFrame(of: item.view, center: center, size: metrics.size * item.reveal * (1 + strength * wave))
-            item.view.isHidden = item.reveal < 0.02
+            setFrame(of: item.view, center: center, size: metrics.size * (1 + strength * wave))
         }
+        applyMorph()
         placeStripes()
     }
 
@@ -714,7 +795,7 @@ final class StripView: NSView {
     private func placeStripes() {
         for (index, item) in items.enumerated() {
             guard let stripe = item.stripe else { continue }
-            stripe.isHidden = isRevealing || draggedIndex != nil
+            stripe.isHidden = isMorphing || draggedIndex != nil
             // In wide mode the next topic's name marks the end.
             if isWide { stripe.isHidden = true }
             let top = item.view.frame.minY
@@ -1372,7 +1453,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var appliesNextPoll = false
     /// The session you just clicked, until Terminal confirms it: a poll in flight still names the old tab.
     private var clickedFront: (id: String, until: Date)?
-    private var isCollapsing = false
     /// How many tiles of the This week folder head the strip; a drag counts its slots after them.
     private var weekTiles = 0
     private var editor: TitleEditor?
@@ -1383,6 +1463,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         get { UserDefaults.standard.bool(forKey: "wideMode") }
         set { UserDefaults.standard.set(newValue, forKey: "wideMode") }
     }
+
+    /// A click on the rooster folds every other tile into it, and the next click brings them back.
+    private var isFolded: Bool {
+        get { UserDefaults.standard.bool(forKey: "stripFolded") }
+        set { UserDefaults.standard.set(newValue, forKey: "stripFolded") }
+    }
+    private var isFolding = false
 
     private var perchOffset: NSPoint {
         get {
@@ -1433,8 +1520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: Strip layout
 
-    private func layoutStrips(revealing sessionIds: Set<String> = []) {
-        isCollapsing = false
+    private func layoutStrips() {
         let screens = NSScreen.screens
         while strips.count > screens.count { strips.removeLast().close() }
         while strips.count < screens.count {
@@ -1442,31 +1528,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         for (panel, screen) in zip(strips, screens) {
             layout(strip: panel, on: screen)
-            if !sessionIds.isEmpty { (panel.contentView as? StripView)?.animateIn(sessionIds) }
         }
     }
 
-    /// Animates a topic open or shut, and saves the new state.
+    /// Opens or shuts a topic and saves the new state; the rebuilt strip animates the change.
     private func setCollapsed(_ topicId: String, _ collapsed: Bool) {
-        guard !isCollapsing, let index = topics.firstIndex(where: { $0.id == topicId }) else { return }
-        let members = Set(faces.filter { $0.topic == topicId }.map(\.id))
-        let apply = { [weak self] in
-            guard let self else { return }
-            self.topics[index].collapsed = collapsed
-            self.signature = self.currentSignature(faces: self.faces, topics: self.topics)
-            self.post("api/topics/\(topicId)", ["collapsed": collapsed])
-            self.layoutStrips(revealing: collapsed ? [] : members)
-        }
-        guard collapsed else {
-            apply()
-            return
-        }
-        isCollapsing = true
-        var done: (() -> Void)? = apply
-        for strip in strips {
-            (strip.contentView as? StripView)?.animateOut(members, done: done)
-            done = nil
-        }
+        guard let index = topics.firstIndex(where: { $0.id == topicId }) else { return }
+        topics[index].collapsed = collapsed
+        signature = currentSignature(faces: faces, topics: topics)
+        post("api/topics/\(topicId)", ["collapsed": collapsed])
+        layoutStrips()
     }
 
     /// Picks the largest tile size at which the rooster, every entry and the plus tile fit on the smallest screen.
@@ -1492,27 +1563,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Like the Dock: the largest tiles at which every entry fits, and at the smallest size the rest is cut off.
         // Half points, so the grid ends within a few points of the bottom.
-        var size = floor(room / CGFloat(minimumTileCount))
+        var size = min(floor(room / CGFloat(minimumTileCount)), largestTile)
         while size > smallestTile && heightOf(all.count, TileMetrics(size: size)) > room { size -= 0.5 }
         let tiles = TileMetrics(size: max(size, smallestTile))
         var count = all.count
         while count > 0 && heightOf(count, tiles) > room { count -= 1 }
-        let shown = Array(all.prefix(count))
+        let shown = isFolded ? [] : Array(all.prefix(count))
         weekTiles = min(week.count, shown.count)
-        let height = heightOf(count, tiles)
-        let width = CGFloat(columns) * tiles.step - tiles.gap
+        let height = isFolded ? tiles.size : heightOf(count, tiles)
+        let width = isFolded ? tiles.size : CGFloat(columns) * tiles.step - tiles.gap
+        let old = panel.contentView as? StripView
+        let oldTiles = old?.snapshot() ?? [:]
         panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: width, height: height), display: false)
 
         let content = StripView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         content.metrics = tiles
         content.columns = columns
         content.leading = isWide ? 2 : 1
+        content.foldsIntoRooster = isFolding
         content.onReorder = { [weak self] from, to in self?.reorder(from: from, to: to) }
         let itemFrame = NSRect(x: 0, y: 0, width: tiles.size, height: tiles.size)
 
         let rooster = RoosterView(frame: itemFrame)
-        rooster.onClick = { [weak self, weak rooster] in
-            if let self, let rooster, let event = NSApp.currentEvent { self.showRoosterMenu(event, rooster) }
+        rooster.onClick = { [weak self] in
+            guard let self else { return }
+            self.isFolded.toggle()
+            self.isFolding = true
+            self.layoutStrips()
+            self.isFolding = false
         }
         rooster.onMenu = { [weak self] event, view in self?.showRoosterMenu(event, view) }
         rooster.onMoved = { [weak self, weak panel] in
@@ -1529,7 +1607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
             content.add(item: plus, title: "New Session", group: "ends") { "Start Claude in a folder" }
         }
-        if isWide { addPlus() }
+        if isWide && !isFolded { addPlus() }
 
         for (index, entry) in shown.enumerated() {
             let inWeek = index < week.count
@@ -1550,7 +1628,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .topic(let topic, let members) where inWeek:
                 let view = topicView(topic, members: members, frame: itemFrame)
                 view.canReorder = false
-                view.onClick = { [weak self] in self?.setWeekCollapsed(!topic.collapsed, members: members) }
+                view.onClick = { [weak self] in self?.setWeekCollapsed(!topic.collapsed) }
                 content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }, group: slots[index].group,
                             header: slots[index].header) {
                     "\(members.count) session\(members.count == 1 ? "" : "s") with something due before Monday"
@@ -1564,8 +1642,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        if !isWide { addPlus() }
-        (panel.contentView as? StripView)?.handOver(to: content)
+        if !isWide && !isFolded { addPlus() }
+        old?.handOver(to: content, tiles: oldTiles)
         panel.contentView = content
         showUnlessFullscreen(panel, on: screen)
     }
@@ -1612,8 +1690,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let icons = CGFloat(Set(pinned + running).count + others + 6)
         let tile = dock.double(forKey: "tilesize") > 0 ? CGFloat(dock.double(forKey: "tilesize")) : 48
         let dockLeft = screen.frame.midX - icons * tile * 1.1 / 2
-        // The widest strip: three tiles of at most an eighth of the height.
-        let stripRight = visible.minX + perchOffset.x + CGFloat(wideColumns) * visible.height / CGFloat(minimumTileCount) * 1.15
+        // The widest strip: three of the largest tiles.
+        let stripRight = visible.minX + perchOffset.x + CGFloat(wideColumns) * largestTile * 1.15
         return dockLeft > stripRight ? screen.frame.minY : visible.minY
     }
 
@@ -1654,25 +1732,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func weekCopyId(_ id: String) -> String { "\(thisWeekTopicId):\(id)" }
 
-    /// Folds the This week folder open or shut with the same animation as a topic.
-    private func setWeekCollapsed(_ collapsed: Bool, members: [Face]) {
-        guard !isCollapsing else { return }
-        let copies = Set(members.map { weekCopyId($0.id) })
-        let apply = { [weak self] in
-            guard let self else { return }
-            self.weekCollapsed = collapsed
-            self.layoutStrips(revealing: collapsed ? [] : copies)
-        }
-        guard collapsed else {
-            apply()
-            return
-        }
-        isCollapsing = true
-        var done: (() -> Void)? = apply
-        for strip in strips {
-            (strip.contentView as? StripView)?.animateOut(copies, done: done)
-            done = nil
-        }
+    /// Folds the This week folder open or shut, like a topic.
+    private func setWeekCollapsed(_ collapsed: Bool) {
+        weekCollapsed = collapsed
+        layoutStrips()
     }
 
     /// A folder on top with a copy of every session that has something due this week, soonest first.
@@ -2172,7 +2235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let next = currentSignature(faces: faces, topics: topics)
         // Background changes wait for the cursor to leave. The user's own action does not.
         let isBusy = StripItemView.isMovingStrip || strips.contains { ($0.contentView as? StripView)?.isBusy == true }
-        if isCollapsing || next == signature || (isBusy && !appliesNextPoll) { return }
+        if next == signature || (isBusy && !appliesNextPoll) { return }
         appliesNextPoll = false
         signature = next
         self.faces = faces
