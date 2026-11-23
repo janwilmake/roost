@@ -546,7 +546,7 @@ final class StripView: NSView {
         window.setFrame(
             NSRect(x: rest.minX, y: rest.minY - metrics.padding, width: metrics.magnifiedWidth, height: rest.height + 2 * metrics.padding),
             display: false)
-        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.tick() }
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in autoreleasepool { self?.tick() } }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
@@ -782,7 +782,7 @@ final class SpinnerView: NSView {
         timer?.invalidate()
         timer = nil
         guard window != nil else { return }
-        let timer = Timer(timeInterval: 1.0 / 24, repeats: true) { [weak self] _ in self?.needsDisplay = true }
+        let timer = Timer(timeInterval: 1.0 / 24, repeats: true) { [weak self] _ in autoreleasepool { self?.needsDisplay = true } }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
@@ -1916,9 +1916,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if isUp {
                 self.pollFaces()
+                // A strip nobody touches gets no events, so AppKit never empties its autorelease pool: each tick empties its own.
                 Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                    self?.pollFaces()
-                    self?.hideOverFullscreen()
+                    autoreleasepool {
+                        self?.pollFaces()
+                        self?.hideOverFullscreen()
+                    }
                 }
                 NSWorkspace.shared.notificationCenter.addObserver(
                     forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
@@ -1944,7 +1947,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let faces = sessions.compactMap(Face.init)
             let topics = (root["topics"] as? [[String: Any]] ?? []).compactMap(Topic.init)
             let terminalFailed = root["terminalFailed"] as? Bool ?? false
-            DispatchQueue.main.async { self?.show(faces: faces, topics: topics, terminalFailed: terminalFailed) }
+            DispatchQueue.main.async { autoreleasepool { self?.show(faces: faces, topics: topics, terminalFailed: terminalFailed) } }
         }.resume()
     }
 
