@@ -1474,7 +1474,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func layout(strip panel: NSPanel, on screen: NSScreen) {
         let visible = screen.visibleFrame
         let offset = perchOffset
-        let room = visible.height - offset.y - stripBottomMargin
+        let room = visible.maxY - offset.y - floorOf(screen) - stripBottomMargin
         let week = weekEntries()
         let all = week + entries(faces: shownFaces, topics: topics)
         let columns = isWide ? wideColumns : 1
@@ -1488,11 +1488,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let heightOf = { (count: Int, tiles: TileMetrics) in
             let ends: [(group: String, header: Bool)] = [("ends", false), ("ends", false)]
             let all = self.isWide ? ends + slots.prefix(count) : [ends[0]] + slots.prefix(count) + [ends[1]]
-            return gridCells(all, columns: columns, metrics: tiles).height + tiles.gap
+            return gridCells(all, columns: columns, metrics: tiles).height + (self.isWide ? 0 : tiles.gap)
         }
         // Like the Dock: the largest tiles at which every entry fits, and at the smallest size the rest is cut off.
+        // Half points, so the grid ends within a few points of the bottom.
         var size = floor(room / CGFloat(minimumTileCount))
-        while size > smallestTile && heightOf(all.count, TileMetrics(size: size)) > room { size -= 1 }
+        while size > smallestTile && heightOf(all.count, TileMetrics(size: size)) > room { size -= 0.5 }
         let tiles = TileMetrics(size: max(size, smallestTile))
         var count = all.count
         while count > 0 && heightOf(count, tiles) > room { count -= 1 }
@@ -1595,6 +1596,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dockHere = rects.contains { $0.owner == "Dock" && $0.layer == 20 && $0.rect == whole }
         let spanning = rects.contains { $0.layer == 0 && $0.pid != me && $0.rect.minX == whole.minX && $0.rect.width == whole.width && $0.rect.intersects(whole) }
         return !dockHere && spanning
+    }
+
+    /// The lowest point the strip may reach. A Dock at the bottom keeps the whole width of its band out of the visible frame,
+    /// but it sits in the middle: unless its icons reach the strip, the strip may go down to the screen's edge.
+    private func floorOf(_ screen: NSScreen) -> CGFloat {
+        let visible = screen.visibleFrame
+        guard visible.minY > screen.frame.minY, let dock = UserDefaults(suiteName: "com.apple.dock") else { return visible.minY }
+        let pinned = (dock.array(forKey: "persistent-apps") as? [[String: Any]] ?? []).compactMap {
+            ($0["tile-data"] as? [String: Any])?["bundle-identifier"] as? String
+        }
+        let running = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier)
+        let others = (dock.array(forKey: "persistent-others") ?? []).count
+        // Finder, the Trash, three recent apps and the dividers on top of the apps and folders.
+        let icons = CGFloat(Set(pinned + running).count + others + 6)
+        let tile = dock.double(forKey: "tilesize") > 0 ? CGFloat(dock.double(forKey: "tilesize")) : 48
+        let dockLeft = screen.frame.midX - icons * tile * 1.1 / 2
+        // The widest strip: three tiles of at most an eighth of the height.
+        let stripRight = visible.minX + perchOffset.x + CGFloat(wideColumns) * visible.height / CGFloat(minimumTileCount) * 1.15
+        return dockLeft > stripRight ? screen.frame.minY : visible.minY
     }
 
     /// A folder tile in the single column; in wide mode the topic's name above its sessions.
