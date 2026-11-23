@@ -568,6 +568,9 @@ final class StripView: NSView {
         } else if window.frame.contains(NSEvent.mouseLocation) {
             // A rebuild under a resting cursor produces no mouseEntered.
             DispatchQueue.main.async { self.begin() }
+        } else {
+            // The cursor left while the strip was rebuilt: no tick runs to put away the label it handed over.
+            tooltip?.orderOut(nil)
         }
     }
 
