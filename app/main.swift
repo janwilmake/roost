@@ -16,6 +16,8 @@ struct TileMetrics {
     var scale: CGFloat { magnifiedSize / size }
     var magnifiedWidth: CGFloat { magnifiedSize + 4 }
     var padding: CGFloat { (scale - 1) * radius / 2 + 6 }
+    /// The height of a topic's name in wide mode.
+    var headerHeight: CGFloat { max(16, (size * 0.6).rounded()) }
 
     /// The largest tiles for which `count` tiles (at least `minimumTileCount`) fill `room`.
     /// Like the Dock, more tiles than fit at the smallest size are cut off.
@@ -33,21 +35,25 @@ let stripBottomMargin: CGFloat = 8
 /// Wide mode lays the strip out in rows of this many tiles.
 let wideColumns = 3
 
-/// The row and column of each tile in wide mode. A tile starts a new row when its row is full or its group differs from
-/// the tile before it, so each topic and its sessions start on a row of their own.
-func gridCells(_ groups: [String], columns: Int) -> [(row: Int, column: Int)] {
-    var cells: [(row: Int, column: Int)] = []
-    var row = 0
+/// The frame of each tile in wide mode, measured down from the top of the strip, and the height they take together.
+/// A tile starts a new row when its row is full or its group differs from the tile before it; a topic's header fills a row.
+func gridCells(_ tiles: [(group: String, header: Bool)], columns: Int, metrics: TileMetrics) -> (cells: [NSRect], height: CGFloat) {
+    var cells: [NSRect] = []
+    var top: CGFloat = 0
+    var rowHeight: CGFloat = 0
     var column = 0
-    for (index, group) in groups.enumerated() {
-        if index > 0 && (column == columns || group != groups[index - 1]) {
-            row += 1
+    for (index, tile) in tiles.enumerated() {
+        if index > 0 && (tile.header || column == columns || tile.group != tiles[index - 1].group) {
+            top += rowHeight + metrics.gap
             column = 0
         }
-        cells.append((row, column))
-        column += 1
+        let height = tile.header ? metrics.headerHeight : metrics.size
+        let width = tile.header ? CGFloat(columns) * metrics.step - metrics.gap : metrics.size
+        cells.append(NSRect(x: CGFloat(column) * metrics.step, y: top, width: width, height: height))
+        rowHeight = height
+        column = tile.header ? columns : column + 1
     }
-    return cells
+    return (cells, top + rowHeight)
 }
 
 enum Palette {
@@ -455,6 +461,7 @@ final class StripView: NSView {
         let stripe: NSView?
         let notes: String
         let group: String
+        let header: Bool
         let detail: () -> String
         var reveal: CGFloat = 1
         var revealTarget: CGFloat = 1
@@ -487,9 +494,10 @@ final class StripView: NSView {
     }
 
     func add(item view: StripItemView, title: String, sessionId: String? = nil, endsTopic: Bool = false, notes: String = "",
-             group: String = "", detail: @escaping () -> String) {
+             group: String = "", header: Bool = false, detail: @escaping () -> String) {
         let stripe = endsTopic ? TopicEndView(frame: .zero) : nil
-        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, notes: notes, group: group, detail: detail))
+        items.append(Item(view: view, title: title, sessionId: sessionId, stripe: stripe, notes: notes, group: group, header: header,
+                          detail: detail))
         addSubview(view)
         if let stripe { addSubview(stripe) }
         placeItems()
@@ -672,21 +680,20 @@ final class StripView: NSView {
         view.frame = NSRect(x: 0, y: bounds.height - topPadding - center - size / 2, width: size, height: size)
     }
 
-    private func cellCenter(_ cell: (row: Int, column: Int)) -> NSPoint {
-        NSPoint(x: metrics.size / 2 + CGFloat(cell.column) * metrics.step,
-                y: bounds.height - topPadding - metrics.size / 2 - CGFloat(cell.row) * metrics.step)
-    }
-
-    private func setFrame(of view: NSView, at center: NSPoint, size: CGFloat) {
-        view.frame = NSRect(x: center.x - size / 2, y: center.y - size / 2, width: size, height: size)
+    /// The grid frames of the tiles in the given order, in view coordinates.
+    private func gridFrames(_ tiles: [(group: String, header: Bool)]) -> [NSRect] {
+        gridCells(tiles, columns: columns, metrics: metrics).cells.map {
+            NSRect(x: $0.minX, y: bounds.height - topPadding - $0.maxY, width: $0.width, height: $0.height)
+        }
     }
 
     /// A fisheye along the strip: the point under the cursor stays still and the rest slides apart.
     private func placeItems() {
         if isWide {
-            let cells = gridCells(items.map(\.group), columns: columns)
+            let frames = gridFrames(items.map { ($0.group, $0.header) })
             for (index, item) in items.enumerated() {
-                setFrame(of: item.view, at: cellCenter(cells[index]), size: metrics.size * item.reveal)
+                let rest = frames[index]
+                item.view.frame = rest.insetBy(dx: rest.width * (1 - item.reveal) / 2, dy: rest.height * (1 - item.reveal) / 2)
                 item.view.isHidden = item.reveal < 0.02
             }
             return placeStripes()
@@ -712,11 +719,8 @@ final class StripView: NSView {
         for (index, item) in items.enumerated() {
             guard let stripe = item.stripe else { continue }
             stripe.isHidden = isRevealing || draggedIndex != nil
-            if isWide {
-                // Under the whole row of the topic's last session.
-                stripe.frame = NSRect(x: 4, y: item.view.frame.minY - metrics.gap / 2 - 1, width: max(bounds.width - 8, 0), height: 2)
-                continue
-            }
+            // In wide mode the next topic's name marks the end.
+            if isWide { stripe.isHidden = true }
             let top = item.view.frame.minY
             let bottom = index + 1 < items.count ? items[index + 1].view.frame.maxY : top - metrics.gap
             stripe.frame = NSRect(x: 4, y: (top + bottom) / 2 - 1, width: max(item.view.frame.width - 8, 0), height: 2)
@@ -761,23 +765,27 @@ final class StripView: NSView {
     private func stepReorderWide(dragged: Int, point: NSPoint) {
         let first = items.firstIndex { $0.view.reorders } ?? 1
         let last = items.lastIndex { $0.view.reorders } ?? items.count - 1
-        let rest = gridCells(items.map(\.group), columns: columns).map(cellCenter)
-        dropSlot = (first...last).min { hypot(rest[$0].x - point.x, rest[$0].y - point.y) < hypot(rest[$1].x - point.x, rest[$1].y - point.y) } ?? dragged
+        let rest = gridFrames(items.map { ($0.group, $0.header) })
+        let distance = { (index: Int) in hypot(rest[index].midX - point.x, rest[index].midY - point.y) }
+        dropSlot = (first...last).min { distance($0) < distance($1) } ?? dragged
         var order = Array(items.indices)
         order.remove(at: dragged)
         order.insert(dragged, at: dropSlot)
-        // The dragged tile joins the group it lands in.
-        let groups = order.enumerated().map { position, index in
-            index == dragged && position > 0 ? items[order[position - 1]].group : items[index].group
+        // A dragged session joins the group it lands in.
+        let tiles = order.enumerated().map { position, index -> (group: String, header: Bool) in
+            let item = items[index]
+            return (index == dragged && position > 0 && !item.header ? items[order[position - 1]].group : item.group, item.header)
         }
-        for (position, cell) in gridCells(groups, columns: columns).enumerated() {
+        for (position, target) in gridFrames(tiles).enumerated() {
             let view = items[order[position]].view
-            let isDragged = order[position] == dragged
-            let target = isDragged ? point : cellCenter(cell)
-            let center = NSPoint(x: view.frame.midX + (target.x - view.frame.midX) * (isDragged ? 1 : 0.3),
-                                 y: view.frame.midY + (target.y - view.frame.midY) * (isDragged ? 1 : 0.3))
-            let size = isDragged ? metrics.size * draggedScale : metrics.size
-            setFrame(of: view, at: center, size: view.frame.width + (size - view.frame.width) * 0.3)
+            if order[position] == dragged {
+                let size = items[dragged].header ? rest[dragged].size : NSSize(width: metrics.size * draggedScale, height: metrics.size * draggedScale)
+                view.frame = NSRect(x: point.x - size.width / 2, y: point.y - size.height / 2, width: size.width, height: size.height)
+            } else {
+                let now = view.frame
+                view.frame = NSRect(x: now.minX + (target.minX - now.minX) * 0.3, y: now.minY + (target.minY - now.minY) * 0.3,
+                                    width: now.width + (target.width - now.width) * 0.3, height: now.height + (target.height - now.height) * 0.3)
+            }
         }
     }
 
@@ -1054,6 +1062,32 @@ final class TopicView: TileView {
         NSGraphicsContext.restoreGraphicsState()
         drawFrontBorder()
         drawNotificationDot()
+    }
+}
+
+/// A topic in wide mode: its name, with an arrow that shows whether it is open, and the count of its sessions when shut.
+final class TopicLabelView: StripItemView {
+    private let text: String
+
+    init(frame: NSRect, name: String, members: [Face], collapsed: Bool) {
+        text = collapsed ? "▸ \(name) · \(members.count)" : "▾ \(name)"
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let inner = bounds.insetBy(dx: 1, dy: 1)
+        Palette.tile.withAlphaComponent(0.9).setFill()
+        NSBezierPath(roundedRect: inner, xRadius: inner.height / 3, yRadius: inner.height / 3).fill()
+        let style = NSMutableParagraphStyle()
+        style.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: max(10, (inner.height * 0.6).rounded()), weight: .semibold),
+            .foregroundColor: Palette.cream, .paragraphStyle: style,
+        ]
+        let height = text.size(withAttributes: attributes).height
+        text.draw(in: NSRect(x: inner.minX + 6, y: inner.midY - height / 2, width: inner.width - 12, height: height), withAttributes: attributes)
     }
 }
 
@@ -1448,21 +1482,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let week = weekEntries()
         let all = week + entries(faces: shownFaces, topics: topics)
         let columns = isWide ? wideColumns : 1
-        // The group of each entry: a topic and its sessions share one, so in wide mode each topic starts a row.
-        let groups = all.enumerated().map { index, entry -> String in
-            if index < week.count { return "week" }
-            if case .topic(let topic, _) = entry { return topic.id }
-            return entry.memberOf ?? "loose"
+        // A topic and its sessions share a group, so in wide mode each topic starts a row, under its name.
+        let slots = all.enumerated().map { index, entry -> (group: String, header: Bool) in
+            if case .topic(let topic, _) = entry { return (index < week.count ? "week" : topic.id, isWide) }
+            return (index < week.count ? "week" : entry.memberOf ?? "loose", false)
         }
-        // The rooster and the plus tile each take a row of their own; in the single column a row is one tile.
-        let rows = { (count: Int) in (gridCells(Array(groups.prefix(count)), columns: columns).last?.row ?? -1) + 3 }
-        let tiles = TileMetrics.filling(room, count: rows(all.count))
+        // The rooster and the plus tile take rows of their own. The extra gap leaves room for a stripe under the last topic.
+        let heightOf = { (count: Int, tiles: TileMetrics) in
+            gridCells([("rooster", false)] + slots.prefix(count) + [("plus", false)], columns: columns, metrics: tiles).height + tiles.gap
+        }
+        let probe = TileMetrics(size: 100)
+        let tiles = TileMetrics.filling(room, count: Int((heightOf(all.count, probe) / probe.step).rounded(.up)))
         var count = all.count
-        while count > 0 && CGFloat(rows(count)) * tiles.step > room { count -= 1 }
+        while count > 0 && heightOf(count, tiles) > room { count -= 1 }
         let shown = Array(all.prefix(count))
         weekTiles = min(week.count, shown.count)
-        // The extra gap leaves room for a stripe under a topic at the end of the sessions.
-        let height = tiles.size + CGFloat(rows(count) - 1) * tiles.step + tiles.gap
+        let height = heightOf(count, tiles)
         let width = CGFloat(columns) * tiles.step - tiles.gap
         panel.setFrame(NSRect(x: visible.minX + offset.x, y: visible.maxY - offset.y - height, width: width, height: height), display: false)
 
@@ -1499,19 +1534,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // A copy has an id of its own, so a topic that folds shut does not fold it too.
                 content.add(item: view, title: face.title, sessionId: inWeek ? weekCopyId(face.id) : face.id,
                             endsTopic: inWeek ? index == week.count - 1 : face.topic != nil && next != face.topic,
-                            notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes, group: groups[index]) { [weak self] in (self?.latest[face.id] ?? face).detail }
+                            notes: inWeek ? agendaText([face]) { $0.dueThisWeek } : face.notes, group: slots[index].group) { [weak self] in (self?.latest[face.id] ?? face).detail }
             case .topic(let topic, let members) where inWeek:
-                let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
+                let view = topicView(topic, members: members, frame: itemFrame)
                 view.canReorder = false
                 view.onClick = { [weak self] in self?.setWeekCollapsed(!topic.collapsed, members: members) }
-                content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }, group: groups[index]) {
+                content.add(item: view, title: topic.name, notes: agendaText(members) { $0.dueThisWeek }, group: slots[index].group,
+                            header: slots[index].header) {
                     "\(members.count) session\(members.count == 1 ? "" : "s") with something due before Monday"
                 }
             case .topic(let topic, let members):
-                let view = TopicView(frame: itemFrame, members: members, collapsed: topic.collapsed)
+                let view = topicView(topic, members: members, frame: itemFrame)
                 view.onClick = { [weak self] in self?.setCollapsed(topic.id, !topic.collapsed) }
                 view.onMenu = { [weak self] event, view in self?.showMenu(for: topic, event, view) }
-                content.add(item: view, title: topic.name, group: groups[index]) { [weak self] in
+                content.add(item: view, title: topic.name, group: slots[index].group, header: slots[index].header) { [weak self] in
                     topicDetail(members.map { self?.latest[$0.id] ?? $0 }, collapsed: topic.collapsed)
                 }
             }
@@ -1553,6 +1589,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let dockHere = rects.contains { $0.owner == "Dock" && $0.layer == 20 && $0.rect == whole }
         let spanning = rects.contains { $0.layer == 0 && $0.pid != me && $0.rect.minX == whole.minX && $0.rect.width == whole.width && $0.rect.intersects(whole) }
         return !dockHere && spanning
+    }
+
+    /// A folder tile in the single column; in wide mode the topic's name above its sessions.
+    private func topicView(_ topic: Topic, members: [Face], frame: NSRect) -> StripItemView {
+        isWide ? TopicLabelView(frame: frame, name: topic.name, members: members, collapsed: topic.collapsed)
+            : TopicView(frame: frame, members: members, collapsed: topic.collapsed)
     }
 
     private var summary: String {
