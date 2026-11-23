@@ -18,15 +18,6 @@ struct TileMetrics {
     var padding: CGFloat { (scale - 1) * radius / 2 + 6 }
     /// The height of a topic's name in wide mode.
     var headerHeight: CGFloat { max(16, (size * 0.6).rounded()) }
-
-    /// The largest tiles for which `count` tiles (at least `minimumTileCount`) fill `room`.
-    /// Like the Dock, more tiles than fit at the smallest size are cut off.
-    static func filling(_ room: CGFloat, count: Int) -> TileMetrics {
-        let tiles = CGFloat(max(count, minimumTileCount))
-        var size = floor(room / tiles)
-        while size > smallestTile && tiles * TileMetrics(size: size).step > room { size -= 1 }
-        return TileMetrics(size: max(size, smallestTile))
-    }
 }
 
 let draggedScale: CGFloat = 1.25
@@ -470,6 +461,8 @@ final class StripView: NSView {
     var metrics = TileMetrics(size: 40)
     /// 1 for the single column; more in wide mode, which shows a grid without the zoom.
     var columns = 1
+    /// The tiles before the first session: the rooster, and in wide mode the plus tile beside it.
+    var leading = 1
     private var isWide: Bool { columns > 1 }
     var onReorder: (_ from: Int, _ to: Int) -> Void = { _, _ in }
     private var items: [Item] = []
@@ -795,7 +788,7 @@ final class StripView: NSView {
     func endReorder() {
         guard let dragged = draggedIndex else { return }
         draggedIndex = nil
-        onReorder(dragged - 1, dropSlot - 1)
+        onReorder(dragged - leading, dropSlot - leading)
     }
 }
 
@@ -1490,12 +1483,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if case .topic(let topic, _) = entry { return (index < week.count ? "week" : topic.id, isWide) }
             return (index < week.count ? "week" : entry.memberOf ?? "loose", false)
         }
-        // The rooster and the plus tile take rows of their own. The extra gap leaves room for a stripe under the last topic.
+        // In the single column the rooster tops the strip and the plus tile ends it; in wide mode they share the top row.
+        // The extra gap leaves room for a stripe under the last topic.
         let heightOf = { (count: Int, tiles: TileMetrics) in
-            gridCells([("rooster", false)] + slots.prefix(count) + [("plus", false)], columns: columns, metrics: tiles).height + tiles.gap
+            let ends: [(group: String, header: Bool)] = [("ends", false), ("ends", false)]
+            let all = self.isWide ? ends + slots.prefix(count) : [ends[0]] + slots.prefix(count) + [ends[1]]
+            return gridCells(all, columns: columns, metrics: tiles).height + tiles.gap
         }
-        let probe = TileMetrics(size: 100)
-        let tiles = TileMetrics.filling(room, count: Int((heightOf(all.count, probe) / probe.step).rounded(.up)))
+        // Like the Dock: the largest tiles at which every entry fits, and at the smallest size the rest is cut off.
+        var size = floor(room / CGFloat(minimumTileCount))
+        while size > smallestTile && heightOf(all.count, TileMetrics(size: size)) > room { size -= 1 }
+        let tiles = TileMetrics(size: max(size, smallestTile))
         var count = all.count
         while count > 0 && heightOf(count, tiles) > room { count -= 1 }
         let shown = Array(all.prefix(count))
@@ -1507,6 +1505,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let content = StripView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         content.metrics = tiles
         content.columns = columns
+        content.leading = isWide ? 2 : 1
         content.onReorder = { [weak self] from, to in self?.reorder(from: from, to: to) }
         let itemFrame = NSRect(x: 0, y: 0, width: tiles.size, height: tiles.size)
 
@@ -1520,7 +1519,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.remember(position: panel)
             DispatchQueue.main.async { self.layoutStrips() }
         }
-        content.add(item: rooster, title: "Roost", group: "rooster") { [weak self] in self?.summary ?? "" }
+        content.add(item: rooster, title: "Roost", group: "ends") { [weak self] in self?.summary ?? "" }
+        let addPlus = { [weak self] in
+            let plus = PlusView(frame: itemFrame)
+            plus.onClick = { [weak self, weak plus] in
+                if let self, let plus { self.showStartMenu(beside: plus) }
+            }
+            plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
+            content.add(item: plus, title: "New Session", group: "ends") { "Start Claude in a folder" }
+        }
+        if isWide { addPlus() }
 
         for (index, entry) in shown.enumerated() {
             let inWeek = index < week.count
@@ -1555,12 +1563,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        let plus = PlusView(frame: itemFrame)
-        plus.onClick = { [weak self, weak plus] in
-            if let self, let plus { self.showStartMenu(beside: plus) }
-        }
-        plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
-        content.add(item: plus, title: "New Session", group: "plus") { "Start Claude in a folder" }
+        if !isWide { addPlus() }
         (panel.contentView as? StripView)?.handOver(to: content)
         panel.contentView = content
         showUnlessFullscreen(panel, on: screen)
