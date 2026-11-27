@@ -31,4 +31,4 @@ The obvious question is whether Anthropic will ship this inside Claude Code. The
 
 I'd like to hear from people who run many agents at once: how do you find the one that's waiting? And if you use iTerm2 or Ghostty, tell me, because that decides what comes next.
 
-Site: https://ROOST_SITE
+Site: https://roostmac.com

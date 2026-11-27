@@ -25,7 +25,7 @@ A strip of tiles at the edge of your Mac screen, one per Claude Code session in 
 
 ## Links
 
-- Website: https://ROOST_SITE
+- Website: https://roostmac.com
 - GitHub: https://github.com/janwilmake/roost
 
 ## First comment

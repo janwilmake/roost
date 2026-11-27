@@ -29,6 +29,6 @@ What it doesn't do (yet):
 
 Price: the source is MIT on GitHub (https://github.com/janwilmake/roost), so you can build it yourself. The ready-made app has a 14-day trial with everything, then stays free for up to 3 sessions. A $49 one-time license gives unlimited sessions and all 1.x updates, with a 14-day refund.
 
-https://ROOST_SITE
+https://roostmac.com
 
 If you run a lot of parallel sessions, how do you keep track of them now? And which terminal should be next?

@@ -10,7 +10,7 @@ I run ~10 Claude Code sessions at once. The slow part stopped being Claude. It's
 
 So I built Roost: a strip of tiles at the edge of my Mac screen, one per session.
 
-https://ROOST_SITE
+https://roostmac.com
 
 ---
 
@@ -58,4 +58,4 @@ The app: 14-day trial with everything, then free for up to 3 sessions. $49 once 
 
 If you run 5+ agents in parallel, I'd like to know how you keep track of them today, and which terminal you'd want next.
 
-https://ROOST_SITE
+https://roostmac.com

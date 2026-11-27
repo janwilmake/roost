@@ -1446,7 +1446,7 @@ final class DateEditor: NSObject, NSWindowDelegate {
 // MARK: License
 
 /// Where the Buy button goes, and the page that hands out license keys after payment.
-let siteURL = URL(string: "https://getroost.wilmake.workers.dev/")!
+let siteURL = URL(string: "https://roostmac.com/")!
 
 /// Roost is free for 14 days with every session. After that it shows up to three sessions, unless it has a license.
 /// A license key is "ROOST1-<id>-<signature>": an Ed25519 signature of "roost1:<id>", checked on this Mac only.

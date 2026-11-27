@@ -10,6 +10,7 @@ const STRIPE = 'https://api.stripe.com/v1';
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.hostname.startsWith('www.')) return Response.redirect(`https://${url.hostname.slice(4)}${url.pathname}${url.search}`, 301);
     try {
       if (url.pathname === '/buy') return await buy(url, env);
       if (url.pathname === '/thanks') return await thanks(url, env);

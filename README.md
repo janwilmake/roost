@@ -8,7 +8,7 @@ Roost is for one person who runs many Claude Code sessions at once in Terminal o
 
 ## Get Roost
 
-Download the app from [getroost.wilmake.workers.dev](https://getroost.wilmake.workers.dev): open the DMG and drag Roost to Applications. Roost needs a Mac with Apple Silicon, macOS 13 or later, and Claude Code in Terminal.app. On first launch it offers to connect to Claude Code: it adds the `roost` skill and the picture hook, so sessions set their own pictures, notes and badges.
+Download the app from [roostmac.com](https://roostmac.com): open the DMG and drag Roost to Applications. Roost needs a Mac with Apple Silicon, macOS 13 or later, and Claude Code in Terminal.app. On first launch it offers to connect to Claude Code: it adds the `roost` skill and the picture hook, so sessions set their own pictures, notes and badges.
 
 Roost is free for 14 days with every session. After that it shows 3 sessions; a $49 license shows them all, on all your Macs, with every 1.x update. To enter a key, right-click the rooster and choose Enter License…, or use the Activate button on the page after payment.
 
