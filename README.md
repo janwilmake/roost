@@ -164,7 +164,7 @@ curl -s http://127.0.0.1:4777/api/sessions |
 
 ## For AI agents: set a session's picture
 
-The app has no picture controls. An agent sets each picture through the local API while Roost runs. A Claude Code hook, `bin/picture-hook.sh`, asks each session that has no picture to set one.
+The app has no picture controls. An agent sets each picture through the local API while Roost runs. A Claude Code hook, `bin/picture-hook.sh`, gives each session that has no picture the one command that sets it. On `Stop` it blocks the end of the turn, once per turn, until the picture, color and notes are set.
 
 Pick the picture in this order:
 
@@ -213,12 +213,12 @@ Do these steps in order. Tell the user what you did at the end. In the commands,
 2. **Clone.** Clone `https://github.com/janwilmake/roost` into `~/roost`, unless the user names another folder. If the clone already exists, run `git pull` in it.
 3. **Build.** In `$ROOST`, run `./scripts/build-app.sh`. It builds `~/Applications/Roost.app`. Run it again after a change of the Node version or a move of the folder.
 4. **Add the command.** Run `mkdir -p ~/.local/bin && ln -sf "$ROOST/bin/roost.js" ~/.local/bin/roost`. If `~/.local/bin` is not on the `PATH`, tell the user.
-5. **Add the picture hook.** It asks each session without a picture to set one. This command keeps every other setting and adds the hook only once:
+5. **Add the picture hook.** It gives each session without a picture the command that sets one, and on `Stop` it holds the turn until the session sets it. This command keeps every other setting and adds the hook to both events only once:
 
    ```bash
    f=~/.claude/settings.json; [ -f "$f" ] || echo '{}' > "$f"
    jq --arg cmd "$ROOST/bin/picture-hook.sh" \
-     'if any(.hooks.UserPromptSubmit[]?.hooks[]?; .command == $cmd) then . else .hooks.UserPromptSubmit += [{hooks: [{type: "command", command: $cmd, timeout: 5}]}] end' \
+     'reduce ("UserPromptSubmit", "Stop") as $e (.; if any(.hooks[$e][]?.hooks[]?; .command == $cmd) then . else .hooks[$e] += [{hooks: [{type: "command", command: $cmd, timeout: 5}]}] end)' \
      "$f" > "$f.tmp" && mv "$f.tmp" "$f"
    ```
 
