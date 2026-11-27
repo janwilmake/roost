@@ -61,4 +61,9 @@ The measure is the time between "needs me" and the moment the user opens the ses
 
 ## Model
 
-Free and open source. The users are few and technical, and they find tools through each other. A price would stop that.
+Open source, paid app. The code is MIT on GitHub; the ready-made app costs $49 once, for one person on all their Macs, with every 1.x update.
+
+- **Free for 14 days** with every session, then free for up to 3 sessions. A user with one to three sessions is not the customer and keeps Roost for free, which keeps word of mouth going. The day they run a fourth session they are the customer.
+- **One-time, not a subscription.** Roost depends on undocumented Claude Code files and on Anthropic not shipping its own overview. A buyer takes less risk with one payment.
+- **$49, not $99.** The buyer pays $100 to $200 a month for Claude. $49 is an impulse buy next to that; $99 asks for a second thought for a strip of icons. Raise the price once there are reviews, or add a team license.
+- **Builders can compile it themselves.** They are rarely the buyers, and they file the best issues.

@@ -6,7 +6,15 @@
 
 Roost is for one person who runs many Claude Code sessions at once in Terminal on a Mac. It reads the session files that Claude Code already writes, so you keep your terminal and your habits. Nothing leaves the Mac. Who it is for and why: [docs/positioning.md](docs/positioning.md).
 
-## Install
+## Get Roost
+
+Download the app from [getroost.wilmake.workers.dev](https://getroost.wilmake.workers.dev): open the DMG and drag Roost to Applications. Roost needs a Mac with Apple Silicon, macOS 13 or later, and Claude Code in Terminal.app. On first launch it offers to connect to Claude Code: it adds the `roost` skill and the picture hook, so sessions set their own pictures, notes and badges.
+
+Roost is free for 14 days with every session. After that it shows 3 sessions; a $49 license shows them all, on all your Macs, with every 1.x update. To enter a key, right-click the rooster and choose Enter License…, or use the Activate button on the page after payment.
+
+The code stays open source under the MIT license. You can also build Roost yourself from this repository.
+
+## Install from source
 
 Paste this into Claude Code:
 
@@ -30,7 +38,7 @@ Roost is a strip of app-style tiles that stays on top in the top-left corner of 
 | Click a topic             | It expands or collapses.                                                      |
 | Right-click a topic       | Expand or Collapse, Rename, Delete Topic. Deleting keeps the sessions.        |
 | Click the rooster         | Fold every tile into the rooster, or bring them back.                         |
-| Right-click the rooster   | Wide Mode, Restart All Sessions…, Quit Roost.                                 |
+| Right-click the rooster   | Wide Mode, Restart All Sessions…, Connect to Claude Code…, Buy Roost… or Enter License…, Quit Roost. |
 | Drag the rooster          | The strip moves on every screen.                                              |
 | Click the + tile          | Start a session in a frequent folder or a new one, resume a recent one, or wake a snoozed one. |
 
@@ -42,7 +50,7 @@ Roost reads every deadline in the notes: `(due Wed 18 Nov 17:00)`, `(due 20 Nov)
 
 Roost sets each session's Terminal tab title to its Roost title, after its emoji when the tile shows one. Each session also has a color, which its tile and its Terminal tab share, so you match a window to its tile at a glance. The color is a dark one; in light mode Roost shows the same hue pale, with black text. A session sets its own color through the roost skill, the way it sets its title.
 
-The + tile opens a new Terminal window that runs `claude --dangerously-skip-permissions` in the folder. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
+The + tile opens a new Terminal window that runs `claude` in the folder. To start those sessions with flags, set them: `defaults write app.roost.sidebar claudeArgs -string " --dangerously-skip-permissions"`, and restart Roost. The most used folders come from `~/.claude/history.jsonl`, counted in sessions, without the `cca` agent slots. A folder that Claude has not seen before first asks if you trust it.
 
 **Wide Mode** shows the strip as a grid of three tiles per row, without the zoom. Each topic is its name in a row of its own, above its sessions, so every topic can stay open; click the name to fold it shut or open it. The plus tile sits beside the rooster, and the tiles grow until the grid fills the height of the screen.
 
@@ -238,3 +246,10 @@ Do these steps in order. Tell the user what you did at the end. In the commands,
 The session files are an undocumented part of Claude Code. If the list goes empty after an update, look there first.
 
 Settings for tests: `ROOST_PORT`, `ROOST_HOME`, `ROOST_SESSIONS_DIR`. Run the tests with `npm test`.
+
+## Release
+
+- `scripts/package.sh` builds `build/dist/Roost.dmg`, with Node inside the app. With `SIGN_IDENTITY` (a Developer ID Application identity) and `NOTARY_PROFILE` (from `xcrun notarytool store-credentials`), it signs and notarizes the DMG too.
+- Upload the DMG as `Roost.dmg` to a GitHub release. The site's `/download` sends people to the latest one.
+- The website is in `site/`: a Cloudflare Worker with the landing page, Stripe Checkout at `/buy`, and the license key at `/thanks`. Run `npm test` there. Deploy with `npx wrangler deploy` after you set two secrets: `STRIPE_SECRET_KEY` and `LICENSE_PRIVATE_KEY`.
+- A license key is an Ed25519 signature that the app checks offline. The public key is in `app/main.swift`. The private key never goes in this repository.

@@ -1,12 +1,17 @@
 #!/bin/bash
 # Builds ~/Applications/Roost.app. Quit Roost first when you rebuild it.
+# PORTABLE=1 puts Node inside the app, for the download; ROOST_APP picks where the app goes.
+# SIGN_IDENTITY signs with a Developer ID ("Developer ID Application: …") instead of ad hoc.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NODE="$(node -p process.execPath)"
 BUILD="$ROOT/build"
 ICONSET="$BUILD/Roost.iconset"
-APP="$HOME/Applications/Roost.app"
+APP="${ROOST_APP:-$HOME/Applications/Roost.app}"
+PORTABLE="${PORTABLE:-0}"
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+VERSION="$(node -p "require('$ROOT/package.json').version")"
 
 mkdir -p "$ICONSET" "$APP/Contents/MacOS" "$APP/Contents/Resources"
 swiftc -O -framework AppKit "$ROOT/app/main.swift" -o "$BUILD/Roost"
@@ -22,7 +27,16 @@ cp "$BUILD/Roost" "$APP/Contents/MacOS/Roost"
 # directly would make macOS ask again for access to it when it is in Desktop or Documents.
 rm -rf "$APP/Contents/Resources/server"
 mkdir -p "$APP/Contents/Resources/server"
-cp -R "$ROOT/src" "$ROOT/package.json" "$APP/Contents/Resources/server/"
+cp -R "$ROOT/src" "$ROOT/bin" "$ROOT/skills" "$ROOT/package.json" "$APP/Contents/Resources/server/"
+rm -rf "$APP/Contents/Resources/node"
+PATHS="  <key>RoostNode</key><string>$NODE</string>
+  <key>RoostRoot</key><string>$APP/Contents/Resources/server</string>"
+if [ "$PORTABLE" = 1 ]; then
+  # The downloaded app finds Node and the server inside itself.
+  mkdir -p "$APP/Contents/Resources/node/bin"
+  cp "$NODE" "$APP/Contents/Resources/node/bin/node"
+  PATHS=""
+fi
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -34,15 +48,34 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleExecutable</key><string>Roost</string>
   <key>CFBundleIconFile</key><string>Roost</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.3.0</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleURLTypes</key><array><dict>
+    <key>CFBundleURLName</key><string>app.roost.sidebar</string>
+    <key>CFBundleURLSchemes</key><array><string>roost</string></array>
+  </dict></array>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Roost brings the Terminal window of a session to the front.</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
-  <key>RoostNode</key><string>$NODE</string>
-  <key>RoostRoot</key><string>$APP/Contents/Resources/server</string>
+$PATHS
 </dict>
 </plist>
 EOF
-codesign --force --sign - "$APP"
+if [ "$SIGN_IDENTITY" = - ]; then
+  codesign --force --deep --sign - "$APP"
+else
+  # Notarization needs the hardened runtime; Node's JIT needs these exceptions to run under it.
+  ENTITLEMENTS="$BUILD/node.entitlements"
+  cat > "$ENTITLEMENTS" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>com.apple.security.cs.allow-jit</key><true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
+</dict></plist>
+PLIST
+  [ -f "$APP/Contents/Resources/node/bin/node" ] && codesign --force --options runtime --timestamp --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTITY" "$APP/Contents/Resources/node/bin/node"
+  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP"
+fi
 echo "Built $APP"

@@ -102,8 +102,11 @@ export async function focusTab(tab) {
   return parseBounds(stdout);
 }
 
+// The flags a session from the + tile starts with. None by default; the app passes its claudeArgs setting.
+const START_ARGS = (process.env.ROOST_CLAUDE_ARGS ?? '').split(/\s+/).filter(Boolean);
+
 /** Opens a new Terminal window that runs Claude in the folder, resumes a session and sends a first prompt if given, and returns its bounds. */
-export async function startClaude(cwd, resumeId = '', args = ['--dangerously-skip-permissions'], prompt = '', timeout = 5000) {
+export async function startClaude(cwd, resumeId = '', args = START_ARGS, prompt = '', timeout = 5000) {
   const command = ['cd', quote(cwd), '&&', 'claude', ...args.map(quote), ...(resumeId ? ['--resume', quote(resumeId)] : []), ...(prompt ? [quote(prompt)] : [])].join(' ');
   const { stdout } = await run('/usr/bin/osascript', ['-e', RUN_COMMAND, command], { timeout });
   return parseBounds(stdout);

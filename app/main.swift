@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 let serverURL = URL(string: "http://127.0.0.1:4777/")!
 let smallestTile: CGFloat = 22
@@ -1442,6 +1443,75 @@ final class DateEditor: NSObject, NSWindowDelegate {
 
 // MARK: - App
 
+// MARK: License
+
+/// Where the Buy button goes, and the page that hands out license keys after payment.
+let siteURL = URL(string: "https://getroost.wilmake.workers.dev/")!
+
+/// Roost is free for 14 days with every session. After that it shows up to three sessions, unless it has a license.
+/// A license key is "ROOST1-<id>-<signature>": an Ed25519 signature of "roost1:<id>", checked on this Mac only.
+enum License {
+    static let trialDays = 14
+    static let freeSessions = 3
+    private static let publicKey = try! Curve25519.Signing.PublicKey(
+        rawRepresentation: Data(base64Encoded: "2yPZ4oZr3AktwwHNR26Jt1qp8gYcS4DWZBTvA+ooW3k=")!)
+
+    /// The license id when the key is genuine.
+    static func verify(_ key: String) -> String? {
+        let parts = key.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "-", maxSplits: 2).map(String.init)
+        guard parts.count == 3, parts[0] == "ROOST1", parts[1].range(of: "^[0-9a-f]{32}$", options: .regularExpression) != nil else { return nil }
+        var base64 = parts[2].replacingOccurrences(of: "_", with: "/").replacingOccurrences(of: "-", with: "+")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let signature = Data(base64Encoded: base64), signature.count == 64,
+            publicKey.isValidSignature(signature, for: Data("roost1:\(parts[1])".utf8)) else { return nil }
+        return parts[1]
+    }
+
+    static var key: String? {
+        get { UserDefaults.standard.string(forKey: "licenseKey").flatMap { verify($0) == nil ? nil : $0 } }
+        set { UserDefaults.standard.set(newValue, forKey: "licenseKey") }
+    }
+
+    static var isLicensed: Bool { key != nil }
+
+    /// The first launch starts the trial.
+    static var trialStart: Date {
+        if let start = UserDefaults.standard.object(forKey: "trialStart") as? Date { return start }
+        let now = Date()
+        UserDefaults.standard.set(now, forKey: "trialStart")
+        return now
+    }
+
+    static var trialDaysLeft: Int {
+        let end = trialStart.addingTimeInterval(TimeInterval(trialDays * 86_400))
+        return max(0, Int(ceil(end.timeIntervalSinceNow / 86_400)))
+    }
+
+    /// True when the strip shows only the free sessions.
+    static var isLimited: Bool { !isLicensed && trialDaysLeft == 0 }
+
+    static func openBuyPage() { NSWorkspace.shared.open(siteURL.appendingPathComponent("buy")) }
+}
+
+/// The tile after the free sessions: how many more sessions a license shows.
+final class LockView: StripItemView {
+    var count = 0
+    override var reorders: Bool { false }
+
+    override func mouseDragged(with event: NSEvent) {}
+
+    override func draw(_ dirtyRect: NSRect) {
+        let inner = bounds.insetBy(dx: 1, dy: 1)
+        Palette.tile.setFill()
+        tilePath(inner).fill()
+        let text = "+\(count)" as NSString
+        let font = NSFont.systemFont(ofSize: max(inner.height * 0.34, 8), weight: .bold)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: Palette.cream]
+        let size = text.size(withAttributes: attributes)
+        text.draw(at: point(inner.midX - size.width / 2, inner.midY - size.height / 2), withAttributes: attributes)
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var strips: [NSPanel] = []
     private var flashes: [NSPanel] = []
@@ -1483,7 +1553,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A roost://activate?key=… link, from the page after payment, licenses Roost. It may also launch it.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(openURL(_:reply:)), forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+    }
+
+    @objc private func openURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let text = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue, let url = URLComponents(string: text),
+            url.host == "activate", let key = url.queryItems?.first(where: { $0.name == "key" })?.value else { return }
+        activate(key: key)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        _ = License.trialStart
         buildMenu()
         layoutStrips()
         NotificationCenter.default.addObserver(
@@ -1547,7 +1630,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let offset = perchOffset
         let room = visible.maxY - offset.y - floorOf(screen) - stripBottomMargin
         let week = weekEntries()
-        let all = week + entries(faces: shownFaces, topics: topics)
+        let all = week + entries(faces: stripFaces, topics: topics)
+        let locked = isFolded ? 0 : shownFaces.count - stripFaces.count
         let columns = isWide ? wideColumns : 1
         // A topic and its sessions share a group, so in wide mode each topic starts a row, under its name.
         let slots = all.enumerated().map { index, entry -> (group: String, header: Bool) in
@@ -1557,8 +1641,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // In the single column the rooster tops the strip and the plus tile ends it; in wide mode they share the top row.
         // The extra gap leaves room for a stripe under the last topic.
         let heightOf = { (count: Int, tiles: TileMetrics) in
-            let ends: [(group: String, header: Bool)] = [("ends", false), ("ends", false)]
-            let all = self.isWide ? ends + slots.prefix(count) : [ends[0]] + slots.prefix(count) + [ends[1]]
+            let ends = [(group: String, header: Bool)](repeating: ("ends", false), count: locked > 0 ? 3 : 2)
+            let all = self.isWide ? ends + slots.prefix(count) : [ends[0]] + slots.prefix(count) + ends.dropFirst()
             return gridCells(all, columns: columns, metrics: tiles).height + (self.isWide ? 0 : tiles.gap)
         }
         // Like the Dock: the largest tiles at which every entry fits, and at the smallest size the rest is cut off.
@@ -1579,7 +1663,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let content = StripView(frame: NSRect(x: 0, y: 0, width: width, height: height))
         content.metrics = tiles
         content.columns = columns
-        content.leading = isWide ? 2 : 1
+        content.leading = isWide ? (locked > 0 ? 3 : 2) : 1
         content.foldsIntoRooster = isFolding
         content.onReorder = { [weak self] from, to in self?.reorder(from: from, to: to) }
         let itemFrame = NSRect(x: 0, y: 0, width: tiles.size, height: tiles.size)
@@ -1606,6 +1690,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             plus.onMenu = { [weak self] _, view in self?.showStartMenu(beside: view) }
             content.add(item: plus, title: "New Session", group: "ends") { "Start Claude in a folder" }
+            guard locked > 0 else { return }
+            let lock = LockView(frame: itemFrame)
+            lock.count = locked
+            lock.onClick = { License.openBuyPage() }
+            lock.onMenu = { [weak self] event, view in self?.showRoosterMenu(event, view) }
+            content.add(item: lock, title: "\(locked) more session\(locked == 1 ? "" : "s")", group: "ends") {
+                "The free trial has ended. Roost shows \(License.freeSessions) sessions; a license shows them all. Click to buy one."
+            }
         }
         if isWide && !isFolded { addPlus() }
 
@@ -1711,6 +1803,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let wip = faces.filter { $0.status == "wip" }.count
         if wip > 0 { parts.append("\(wip) work in progress") }
         if snoozed > 0 { parts.append("\(snoozed) snoozed (under +)") }
+        if !License.isLicensed {
+            let days = License.trialDaysLeft
+            parts.append(days > 0 ? "Trial: \(days) day\(days == 1 ? "" : "s") left" : "Free: \(License.freeSessions) sessions")
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -1724,6 +1820,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Applies a drop locally at once, then saves the order and any change of topic.
     /// A snoozed session leaves the strip. The Snoozed menu under the plus tile lists it.
     private var shownFaces: [Face] { faces.filter { $0.status != "snoozed" } }
+
+    /// The sessions with a tile: every shown one, or only the free ones once the trial is over without a license.
+    private var stripFaces: [Face] { License.isLimited ? Array(shownFaces.prefix(License.freeSessions)) : shownFaces }
 
     private var weekCollapsed: Bool {
         get { UserDefaults.standard.object(forKey: "thisWeekCollapsed") as? Bool ?? true }
@@ -1740,7 +1839,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// A folder on top with a copy of every session that has something due this week, soonest first.
     private func weekEntries() -> [Entry] {
-        let members = shownFaces.filter { !$0.dueThisWeek.isEmpty }.sorted { $0.dueThisWeek[0].at < $1.dueThisWeek[0].at }
+        let members = stripFaces.filter { !$0.dueThisWeek.isEmpty }.sorted { $0.dueThisWeek[0].at < $1.dueThisWeek[0].at }
         guard !members.isEmpty else { return [] }
         let topic = Topic(id: thisWeekTopicId, name: "This week", collapsed: weekCollapsed)
         return [.topic(topic, members: members)] + (topic.collapsed ? [] : members.map(Entry.face))
@@ -1748,7 +1847,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func reorder(from slot: Int, to target: Int) {
         let (from, to) = (slot - weekTiles, target - weekTiles)
-        var list = entries(faces: shownFaces, topics: topics)
+        var list = entries(faces: stripFaces, topics: topics)
         guard from != to, list.indices.contains(from), list.indices.contains(to) else {
             layoutStrips()
             return
@@ -1768,6 +1867,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if face.topic == nil || face.topic != movedTopic { ids.append(face.id) }
             }
         }
+
+        // The sessions a license would show keep their order after the free ones.
+        let onStrip = Set(stripFaces.map(\.id))
+        ids += shownFaces.filter { !onStrip.contains($0.id) }.map(\.id)
 
         // Each snoozed session keeps its place: right after the session it followed.
         for (index, face) in faces.enumerated() where face.status == "snoozed" {
@@ -1812,9 +1915,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wide.state = isWide ? .on : .off
         menu.addItem(wide)
         menu.addItem(ActionItem("Restart All Sessions…") { [weak self] in self?.confirmRestartAll() })
+        menu.addItem(ActionItem("Connect to Claude Code…") { [weak self] in self?.connectClaude() })
+        menu.addItem(.separator())
+        if License.isLicensed {
+            let licensed = NSMenuItem(title: "Licensed. Thank you!", action: nil, keyEquivalent: "")
+            licensed.isEnabled = false
+            menu.addItem(licensed)
+        } else {
+            let days = License.trialDaysLeft
+            menu.addItem(ActionItem(days > 0 ? "Buy Roost… (trial: \(days) day\(days == 1 ? "" : "s") left)" : "Buy Roost…") { License.openBuyPage() })
+            menu.addItem(ActionItem("Enter License…") { [weak self] in self?.askLicense() })
+        }
         menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Roost") { NSApp.terminate(nil) })
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    // MARK: License and setup
+
+    private func askLicense() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Enter your Roost license"
+        alert.informativeText = "Paste the key from the page after your purchase, or from your receipt email."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.placeholderString = "ROOST1-…"
+        if let copied = NSPasteboard.general.string(forType: .string), License.verify(copied) != nil { field.stringValue = copied }
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Activate")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        if alert.runModal() == .alertFirstButtonReturn { activate(key: field.stringValue) }
+    }
+
+    private func activate(key: String) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        if License.verify(key) != nil {
+            License.key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+            layoutStrips()
+            alert.messageText = "Roost is licensed"
+            alert.informativeText = "Thank you! Every session now has a tile."
+        } else {
+            alert.alertStyle = .warning
+            alert.messageText = "This license key is not valid"
+            alert.informativeText = "Copy the whole key, from ROOST1- to the end, and try again. Lost it? Reply to your receipt email."
+        }
+        alert.runModal()
+    }
+
+    /// The first time, Roost offers to add its skill and hook to Claude Code, so sessions set their own pictures, notes and badges.
+    private func offerClaudeSetup() {
+        guard !UserDefaults.standard.bool(forKey: "claudeSetupAsked") else { return }
+        UserDefaults.standard.set(true, forKey: "claudeSetupAsked")
+        connectClaude()
+    }
+
+    private func connectClaude() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Connect Roost to Claude Code?"
+        alert.informativeText = "Roost adds the roost skill to ~/.claude/skills and a hook to ~/.claude/settings.json (a backup is kept). Then each session sets its own picture, color and notes, and its badge counts what waits for you. Sessions that start after this pick it up."
+        alert.addButton(withTitle: "Connect")
+        alert.addButton(withTitle: "Not Now")
+        guard alert.runModal() == .alertFirstButtonReturn, let (node, root) = serverPaths() else { return }
+        let setup = Process()
+        setup.executableURL = URL(fileURLWithPath: node)
+        setup.arguments = ["\(root)/src/setup.js", root, node]
+        let output = Pipe()
+        setup.standardOutput = output
+        setup.standardError = output
+        let done = NSAlert()
+        do {
+            try setup.run()
+            setup.waitUntilExit()
+            let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            done.messageText = setup.terminationStatus == 0 ? "Roost is connected to Claude Code" : "Roost could not connect to Claude Code"
+            done.informativeText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            done.messageText = "Roost could not connect to Claude Code"
+            done.informativeText = error.localizedDescription
+        }
+        done.runModal()
     }
 
     /// Terminal quits and opens every Claude session in it again, for a Terminal setting that needs a fresh start.
@@ -2141,9 +2323,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }.resume()
     }
 
-    private func spawnServer() {
+    /// Node and the server: a build from a clone names them in Info.plist; the downloaded app carries both inside.
+    private func serverPaths() -> (node: String, root: String)? {
         let info = Bundle.main.infoDictionary ?? [:]
-        guard let node = info["RoostNode"] as? String, let root = info["RoostRoot"] as? String else { return }
+        if let node = info["RoostNode"] as? String, let root = info["RoostRoot"] as? String { return (node, root) }
+        guard let resources = Bundle.main.resourceURL else { return nil }
+        return (resources.appendingPathComponent("node/bin/node").path, resources.appendingPathComponent("server").path)
+    }
+
+    private func spawnServer() {
+        guard let (node, root) = serverPaths() else { return }
         let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".roost")
         try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let log = home.appendingPathComponent("server.log")
@@ -2152,6 +2341,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let server = Process()
         server.executableURL = URL(fileURLWithPath: node)
         server.arguments = ["\(root)/src/server.js"]
+        // The flags a session from the + tile starts with, for example --dangerously-skip-permissions. None by default.
+        if let flags = UserDefaults.standard.string(forKey: "claudeArgs") {
+            server.environment = ProcessInfo.processInfo.environment.merging(["ROOST_CLAUDE_ARGS": flags]) { $1 }
+        }
         if let handle = try? FileHandle(forWritingTo: log) {
             handle.seekToEndOfFile()
             server.standardOutput = handle
@@ -2165,6 +2358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             if isUp {
                 self.pollFaces()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { self.offerClaudeSetup() }
                 // A strip nobody touches gets no events, so AppKit never empties its autorelease pool: each tick empties its own.
                 Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
                     autoreleasepool {
@@ -2287,6 +2481,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             })
         }
     }
+}
+
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--verify-license" {
+    print(License.verify(CommandLine.arguments[2]) ?? "invalid")
+    exit(0)
 }
 
 if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--render-icon", let pixels = Int(CommandLine.arguments[2]) {

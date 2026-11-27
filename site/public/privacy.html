@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roost Privacy</title>
+<meta name="description" content="What Roost and its website do with your data. Short version: the app sends nothing anywhere.">
+<meta name="theme-color" content="#161310" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fff8ec" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="site">
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/favicon.svg" alt="" width="30" height="30">Roost</a>
+    <a class="button primary small" href="/buy" style="margin-left:auto">Buy $49</a>
+  </div>
+</header>
+
+<main class="wrap doc">
+  <h1>Privacy</h1>
+  <p class="muted">Last updated 27 November 2026</p>
+
+  <p>The short version: the Roost app sends nothing anywhere, and this website does not track you.</p>
+
+  <h2>The app</h2>
+  <ul>
+    <li>Roost runs only on your Mac. It has no account and no cloud.</li>
+    <li>It sends no data anywhere: no telemetry, no analytics, no crash reports.</li>
+    <li>It checks your license key offline, on your Mac.</li>
+    <li>What Roost stores, such as session titles, pictures, colors and notes, stays on your Mac in <code>~/.roost</code>.</li>
+    <li>Its local API listens only on <code>127.0.0.1</code>, so only programs on your own Mac can reach it.</li>
+  </ul>
+
+  <h2>This website</h2>
+  <ul>
+    <li>No analytics, no tracking scripts and no cookies.</li>
+    <li>Cloudflare hosts the site. Like any web host, it handles your IP address and request details to deliver the pages and protect against abuse.</li>
+    <li>The fonts load from Google Fonts, which sees the request for them.</li>
+  </ul>
+
+  <h2>Buying a license</h2>
+  <p>Stripe handles the payment. Your card details go to Stripe and never reach Jan Wilmake. Stripe shares the details of the sale with the seller, such as your name, email address, country and the amount paid. Those are used only to deliver your license, answer your questions, handle refunds and keep the records that tax law requires. They are not sold or shared for marketing.</p>
+  <p>Stripe's own privacy policy applies to what Stripe does with your data.</p>
+
+  <h2>Your rights</h2>
+  <p>You can ask what data about you is kept, ask to correct it, or ask to delete it, except for records the law requires to be kept. Reply to your receipt email to ask.</p>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Made by Jan Wilmake</span>
+    <nav aria-label="Footer">
+      <a href="/">Home</a>
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="https://github.com/janwilmake/roost">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

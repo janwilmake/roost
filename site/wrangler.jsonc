@@ -1,0 +1,13 @@
+{
+  "name": "getroost",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/buy", "/thanks", "/download"] },
+  "vars": {
+    "PRICE_CENTS": "4900",
+    "CURRENCY": "usd",
+    "STRIPE_TAX": "off",
+    "DOWNLOAD_URL": "https://github.com/janwilmake/roost/releases/latest/download/Roost.dmg"
+  }
+  // Secrets, set once with `wrangler secret put`: STRIPE_SECRET_KEY and LICENSE_PRIVATE_KEY.
+}

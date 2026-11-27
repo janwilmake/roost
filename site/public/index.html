@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roost: never leave an agent waiting</title>
+<meta name="description" content="Roost is a Mac app that puts every Claude Code session on the edge of your screen as an app icon. A red dot means it needs you. One click brings its Terminal window forward.">
+<meta property="og:title" content="Roost: never leave an agent waiting">
+<meta property="og:description" content="Every Claude Code session on the edge of your screen. A red dot means it needs you. One click brings its Terminal window forward.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#161310" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fff8ec" media="(prefers-color-scheme: light)">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="site">
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/"><img src="/favicon.svg" alt="" width="30" height="30">Roost</a>
+    <nav aria-label="Sections">
+      <a href="#features">Features</a>
+      <a href="#local">Local only</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="https://github.com/janwilmake/roost">GitHub</a>
+    </nav>
+    <a class="button primary small" href="/buy">Buy $49</a>
+  </div>
+</header>
+
+<main>
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">For Claude Code on the Mac</span>
+      <h1 id="hero-title">Never leave an agent waiting.</h1>
+      <p class="lede">Roost puts every Claude Code session on the edge of your screen as an app icon. A red dot means it needs you. One click brings its Terminal window to the front.</p>
+      <div class="buttons">
+        <a class="button primary" href="/buy">Buy Roost, $49</a>
+        <a class="button" href="/download">Download the free trial</a>
+      </div>
+      <p class="fine">14 days with everything, then free for up to 3 sessions. macOS 13 or later, Apple Silicon, Claude Code in Terminal.app.</p>
+    </div>
+
+    <div>
+      <div class="desk" role="img" aria-label="A Mac desktop with the Roost strip at its left edge. Seven session tiles: Release 2.4 needs you, Flaky test is working, a Support topic with two sessions, Refactor billing waits on CI, and Weekly metrics is quiet. The Terminal window of Release 2.4 is in front, asking to tag the release.">
+        <div class="strip">
+          <div class="tile rooster">
+            <span class="face">
+              <svg viewBox="0 0 100 100" aria-hidden="true"><g transform="matrix(1 0 0 -1 0 100)"><path fill="none" stroke="#fff5e0" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" d="M85 62L72 68C72 71 71 73 70 75C73 85 62 87 61 78C60 89 49 89 50 78C46 85 38 81 43 71C39 62 37 55 31 53C25 52 20 66 11 77C5 50 16 20 48 20C68 20 80 36 71 51L74 56Z"/><circle cx="62" cy="65.5" r="4" fill="#fff5e0"/></g></svg>
+            </span>
+            <span class="label"><b>Roost</b>Click to fold every tile into the rooster. Right-click for Wide Mode and Restart All.</span>
+          </div>
+
+          <div class="tile pinned" style="--c:#1e2a4a">
+            <span class="face">🚀</span><span class="dot"></span>
+            <span class="label"><b>Release 2.4</b><span class="st" style="--s:#ff453a">Needs you · waiting 6 min</span><span class="meta">~/code/app · started 2h ago</span><span class="note">Waiting for you: approve the v2.4.0 tag</span></span>
+          </div>
+
+          <div class="tile" style="--c:#1f3a2a">
+            <span class="face">🧪</span><span class="spin"></span>
+            <span class="label"><b>Flaky test</b><span class="st" style="--s:#ff9f0a">Working</span><span class="meta">~/code/app · started 38 min ago</span><span class="note">In progress: run the checkout spec 50 times</span></span>
+          </div>
+
+          <div class="tile topic">
+            <span class="face"><span>🔐</span><span>📤</span></span><span class="count">2</span>
+            <span class="label"><b>Support</b><span class="st" style="--s:#ff453a">2 sessions · 1 needs you</span><span class="meta">Topic · click to fold</span></span>
+          </div>
+
+          <div class="tile" style="--c:#3c2a10">
+            <span class="face">🔐</span><span class="count">2</span>
+            <span class="label"><b>Support: login bug</b><span class="st" style="--s:#ff453a">Needs you</span><span class="meta">~/code/app · notes 12 min old</span><span class="note">Waiting for you: review the hotfix PR, then send the reply draft</span></span>
+          </div>
+
+          <div class="tile" style="--c:#2c2448">
+            <span class="face">📤</span><span class="spin"></span>
+            <span class="label"><b>Support: CSV export</b><span class="st" style="--s:#ff9f0a">Working</span><span class="meta">~/code/app · started 1h ago</span></span>
+          </div>
+
+          <span class="topic-end" aria-hidden="true"></span>
+
+          <div class="tile" style="--c:#3c1612">
+            <span class="face">💳</span><span class="wip">wip</span>
+            <span class="label"><b>Refactor billing</b><span class="st" style="--s:#8c877f">Work in progress · watching CI</span><span class="meta">~/code/billing · started yesterday</span><span class="note">In progress: move invoices to the new table (due Fri 18:00)</span></span>
+          </div>
+
+          <div class="tile" style="--c:#183240">
+            <span class="face">📊</span>
+            <span class="label"><b>Weekly metrics</b><span class="st">Quiet · you saw the result</span><span class="meta">~/ops · finished 20 min ago</span></span>
+          </div>
+
+          <div class="tile plus">
+            <span class="face">+</span>
+            <span class="label"><b>New session</b>Start one in a frequent folder, resume a recent one, or wake a snoozed one.</span>
+          </div>
+        </div>
+
+        <div class="window back" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>💳 Refactor billing</span></div>
+          <div class="screen g">⏺ Pushed billing-v2. Waiting for CI…
+  ⎿ 3 of 7 jobs done</div>
+        </div>
+
+        <div class="window front" aria-hidden="true">
+          <div class="bar"><i></i><i></i><i></i><span>🚀 Release 2.4</span></div>
+<div class="screen"><span class="g">&gt; cut the 2.4 release</span>
+
+<span class="c">⏺</span> Bumped the version to 2.4.0 and updated CHANGELOG.md.
+<span class="c">⏺</span> Bash(npm test)
+  <span class="g">⎿ 214 passed, 0 failed</span>
+
+<span class="c">⏺</span> Ready to tag v2.4.0 and push.
+
+ Do you want to proceed?
+ <span class="sel">❯ 1. Yes</span>
+   2. No, tell Claude what to do instead</div>
+        </div>
+      </div>
+
+      <ul class="legend" aria-label="What the marks mean">
+        <li><span class="dot"></span>Needs you</li>
+        <li><span class="spin"></span>Working</li>
+        <li><span class="wip">wip</span>Waits on background work</li>
+        <li><span class="none"></span>Quiet</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="problem" aria-labelledby="problem-title">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="problem-title">At five sessions, the bottleneck is you.</h2>
+      <p>You run a release, a customer thread, a flaky test and an ops check, each in its own Claude Code session. Claude is no longer the slow part. Finding the session that needs you is.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <span class="num">1</span>
+        <h3>A waiting agent does nothing</h3>
+        <p>A session that asks a question stops until you answer. With ten windows open, you don't see which one asks. One "yes" can wait an hour.</p>
+      </div>
+      <div class="card">
+        <span class="num">2</span>
+        <h3>The right window is hard to find</h3>
+        <p>The windows look the same, the titles are cut off, and half of them are on the other screen. Cmd+` is a guessing game.</p>
+      </div>
+      <div class="card">
+        <span class="num">3</span>
+        <h3>Everything has the same weight</h3>
+        <p>A customer thread and a test run are both one window. The window list has no priority.</p>
+      </div>
+      <div class="card">
+        <span class="num">4</span>
+        <h3>You forget what a session was for</h3>
+        <p>After a day, "claude" in a tab title tells you nothing.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo" aria-labelledby="demo-title">
+  <div class="wrap demo">
+    <figure>
+      <img src="/demo.gif" alt="Roost in use: hovering the strip shows labels, a click brings a Terminal window forward, a topic opens, and a new session starts." width="750" height="700" loading="lazy" decoding="async">
+      <figcaption>Hover, click, open a topic, start a session.</figcaption>
+    </figure>
+    <div>
+      <h2 id="demo-title">One glance, one click.</h2>
+      <ol class="steps">
+        <li><strong>Look at the edge of the screen.</strong> A red dot means a session waits for you. An orange spinner means it is working. No mark means it is quiet.</li>
+        <li><strong>Hover a tile.</strong> It grows like the Dock, and a label shows the title, status, folder and the session's notes.</li>
+        <li><strong>Click it.</strong> Its Terminal window comes forward and flashes an orange border, also on your other screen.</li>
+        <li><strong>Go back to what you were doing.</strong> The strip stays on top and out of the way.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="features-title">What's in the strip</h2>
+      <p>Roost is small on purpose. It has no main window. Everything lives in the tiles, their right-click menus and the + tile.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <span class="icon" aria-hidden="true">🖼️</span>
+        <h3>Faces, not titles</h3>
+        <p>Each session sets its own picture, color and notes through a local API. A customer thread can show the person's face, a vendor its logo. The tile and the Terminal tab share the color.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden="true">↕️</span>
+        <h3>Your order</h3>
+        <p>Drag tiles like the Dock to set priority. Group them into topics, such as "Support" or "Customers". A topic shows the most urgent mark of its sessions.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden="true">📅</span>
+        <h3>This week</h3>
+        <p>Roost reads deadlines like <code>(due Fri 18:00)</code> from session notes. A folder on top holds every session with something due before Monday, soonest first.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden="true">💤</span>
+        <h3>Snooze</h3>
+        <p>Take a session off the strip for an hour, until tomorrow or until the weekend. Or snooze it every work day from 9 to 18. It comes back by itself.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden="true">▦</span>
+        <h3>Wide Mode</h3>
+        <p>A grid of three tiles per row, with each topic on its own row, so every topic can stay open. The tiles grow to fill the height of the screen.</p>
+      </div>
+      <div class="card">
+        <span class="icon" aria-hidden="true">🔁</span>
+        <h3>Restart All</h3>
+        <p>Quit Terminal and reopen every session with <code>claude --resume</code>, each in its own window. Sessions keep their place, title, picture and notes. Roost asks first and waits for working sessions if you want.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="local" aria-labelledby="local-title">
+  <div class="wrap split">
+    <div>
+      <h2 id="local-title">How it works</h2>
+      <ol class="steps">
+        <li><strong>Roost reads what Claude Code already writes.</strong> Claude Code keeps a file for every session on your Mac. Roost watches those files, so it sees the sessions you already run.</li>
+        <li><strong>You keep your terminal and your habits.</strong> No wrapper, no tmux, no new way to start a session. Start Claude Code the way you always do. The + tile is there if you want it.</li>
+        <li><strong>Sessions talk to Roost on your Mac.</strong> A small local API on <code>127.0.0.1</code> lets a session set its picture, color, notes and topic.</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>Local only</h3>
+      <ul class="checks">
+        <li><strong>No account and no cloud.</strong> Roost runs on your Mac and nowhere else.</li>
+        <li><strong>The app sends nothing anywhere.</strong> No telemetry, no crash reports, no update pings.</li>
+        <li><strong>The license is checked offline.</strong> Roost works on a plane.</li>
+        <li><strong>This website has no analytics and no cookies.</strong></li>
+        <li><strong>Nothing to migrate.</strong> Quit Roost and your sessions keep running as before.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="alt" id="pricing" aria-labelledby="pricing-title">
+  <div class="wrap">
+    <div class="head">
+      <h2 id="pricing-title">One price, once</h2>
+      <p>Try everything for 14 days. Keep using it free with up to 3 sessions, or buy a license for as many as you run.</p>
+    </div>
+    <div class="plans">
+      <div class="plan">
+        <h3>Free</h3>
+        <div class="price">$0</div>
+        <ul>
+          <li>14-day trial with everything</li>
+          <li>After that, up to 3 sessions on the strip</li>
+          <li>No account, no email address needed</li>
+        </ul>
+        <a class="button" href="/download">Download the free trial</a>
+      </div>
+      <div class="plan paid">
+        <h3>Personal license</h3>
+        <div class="price">$49<small>one time</small></div>
+        <ul>
+          <li>Unlimited sessions on the strip</li>
+          <li>One person, all of their Macs</li>
+          <li>Every 1.x update included</li>
+          <li>14-day refund, no questions asked</li>
+        </ul>
+        <a class="button primary" href="/buy">Buy Roost, $49</a>
+      </div>
+    </div>
+    <p class="open">The source code is open, under the MIT license, on <a href="https://github.com/janwilmake/roost">GitHub</a>. You pay for the ready-made app and the updates, and that funds the work on Roost. If you'd rather compile it yourself, you can.</p>
+  </div>
+</section>
+
+<section id="faq" aria-labelledby="faq-title">
+  <div class="wrap faq">
+    <h2 id="faq-title">Questions</h2>
+
+    <details>
+      <summary>What happens after the 14 days?</summary>
+      <div><p>Roost keeps working, free, with up to 3 sessions on the strip. A license unlocks unlimited sessions again. You don't need to sign up for the trial, and nothing asks for a card.</p></div>
+    </details>
+
+    <details>
+      <summary>Does it work with iTerm2, Ghostty or VS Code?</summary>
+      <div><p>Not yet. Roost works with Claude Code running in Terminal.app, the terminal that comes with macOS. It needs that to bring the right window forward and to color its tab. iTerm2 and Ghostty are the next candidates if enough people ask; say so in a <a href="https://github.com/janwilmake/roost/issues">GitHub issue</a>.</p></div>
+    </details>
+
+    <details>
+      <summary>What do I need to run it?</summary>
+      <div><p>A Mac with Apple Silicon and macOS 13 or later, and Claude Code running in Terminal.app. Roost does not support Intel Macs.</p></div>
+    </details>
+
+    <details>
+      <summary>Won't Anthropic build this into Claude Code?</summary>
+      <div><p>They might, and if they do, it may well cover what you need. Roost is built so you lose little when that day comes: it reads the files Claude Code already writes, adds no wrapper, and asks you to change nothing about how you work. Remove it and your sessions are as they were.</p><p>Until then, Roost depends on Claude Code files that are not documented. A Claude Code update can break the session list until Roost ships a fix. The free trial is there so you can judge if it's worth $49 to you today.</p></div>
+    </details>
+
+    <details>
+      <summary>Can I get a refund?</summary>
+      <div><p>Yes. Within 14 days of buying, reply to your receipt email and you get your money back. No questions asked.</p></div>
+    </details>
+
+    <details>
+      <summary>It's open source. Why pay?</summary>
+      <div><p>The code is MIT licensed on <a href="https://github.com/janwilmake/roost">GitHub</a>, and you're welcome to build it yourself. The $49 buys the ready-made app and every 1.x update, and it pays for the time that goes into Roost.</p></div>
+    </details>
+
+    <details id="install">
+      <summary>How do I install it? macOS says it can't open Roost.</summary>
+      <div><p>Open the DMG and drag Roost to Applications. Roost is not notarized by Apple yet, so macOS blocks it the first time you open it. Go to System Settings → Privacy &amp; Security, scroll down, click "Open Anyway" next to the message about Roost, and confirm. You only do this once.</p></div>
+    </details>
+
+    <details>
+      <summary>Where do I report a bug or ask a question?</summary>
+      <div><p>Bugs go to <a href="https://github.com/janwilmake/roost/issues">GitHub issues</a>. For questions about your license or a refund, reply to your receipt email.</p></div>
+    </details>
+  </div>
+</section>
+
+<section class="alt cta" aria-labelledby="cta-title">
+  <div class="wrap">
+    <img src="/favicon.svg" alt="" width="64" height="64">
+    <h2 id="cta-title">See which session needs you.</h2>
+    <p class="muted">Free for 14 days with everything. No account.</p>
+    <div class="buttons">
+      <a class="button primary" href="/buy">Buy Roost, $49</a>
+      <a class="button" href="/download">Download the free trial</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>Made by Jan Wilmake</span>
+    <nav aria-label="Footer">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="https://github.com/janwilmake/roost">GitHub</a>
+      <a href="https://github.com/janwilmake/roost/issues">Report a bug</a>
+    </nav>
+    <p class="note">Claude and Claude Code are products of Anthropic. Roost is an independent app and is not made by or affiliated with Anthropic.</p>
+  </div>
+</footer>
+
+</body>
+</html>
