@@ -3,7 +3,7 @@
   "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
   "routes": [{ "pattern": "roostmac.com", "custom_domain": true }, { "pattern": "www.roostmac.com", "custom_domain": true }],
-  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": ["/buy", "/thanks", "/download"] },
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
   "vars": {
     "PRICE_CENTS": "4900",
     "CURRENCY": "usd",
